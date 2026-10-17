@@ -1,0 +1,21 @@
+{
+  "name": "wenquan-interview-copilot",
+  "version": "0.4.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node --env-file-if-exists=.env server/service.mjs",
+    "start:studio": "node --env-file-if-exists=.env scripts/studio-server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "probe:asr": "node --env-file-if-exists=.env scripts/probe-volc-asr.mjs",
+    "probe:joymaas": "node --env-file-if-exists=.env scripts/probe-joymaas.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "ws": "^8.22.0"
+  }
+}

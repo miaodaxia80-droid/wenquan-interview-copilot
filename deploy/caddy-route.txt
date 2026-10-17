@@ -1,0 +1,4 @@
+# Insert inside the existing cx.kevinxu.cn site block, before its fallback proxy.
+handle_path /wenquan/* {
+    reverse_proxy 127.0.0.1:8788
+}

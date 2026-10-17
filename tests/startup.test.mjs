@@ -1,0 +1,167 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import vm from 'node:vm';
+import * as core from '../web/core.js';
+import {hostPrepare} from '../web/interview-ui.js';
+import {availableQuestions} from '../web/interview.js';
+import { DEMOS } from '../web/fixtures.js';
+import { requestDeadline, abortable, last } from '../web/platform.js';
+import { readModelEvents } from '../web/model-stream.js';
+import { runInForeground } from '../web/foreground.js';
+
+function appHarness({ emptyItem = false, storageFailure = false } = {}) {
+  const state = core.newState('fde'); state.settings.backend = 'https://cloud.test/wenquan';
+  const session = core.current(state).session;
+  const handlers = new Map(), nodes = new Map(), button = { disabled: false, textContent: '' };
+  const itemNodes = session.items.map((item, index) => ({
+    dataset: { item: item.id },
+    querySelector: selector => ({ value: emptyItem && index === 0 ? '' : selector.includes('label') ? item.label : item.question })
+  }));
+  const node = id => {
+    if (!nodes.has(id)) nodes.set(id, { innerHTML: '', textContent: '', classList: { add() {} }, addEventListener(name, callback) { handlers.set(id + ':' + name, callback); }, querySelector() { return button; }, scrollIntoView() {} });
+    return nodes.get(id);
+  };
+  node('prepare-form').elements = { title: { value: '启动回归测试' }, goal: { value: session.goal }, role: { value: session.role } };
+  const document = {
+    getElementById: id => ['hud', 'transcript'].includes(id) ? null : node(id),
+    querySelectorAll: selector => selector === '.item-editor' ? itemNodes : [],
+    querySelector: () => node('brand'),
+    createElement: () => ({}), addEventListener(name, callback) { handlers.set('document:' + name, callback); }
+  };
+  let opened = 0;
+  const gm = {
+    runtime: { async getLifecycleState() { return { state: 'running' }; }, async getCapabilities() { return { methods: ['audio.openCapture'] }; } },
+    storage: { async set() { if (storageFailure) throw new Error('PERMISSION_DENIED'); } }
+  };
+  const context = vm.createContext({
+    ...core, DEMOS, last, requestDeadline, runInForeground, document, window: { scrollTo() {}, addEventListener() {} },
+    AbortController, location: { origin: 'https://mobile.test' }, localStorage: { getItem() { return null; } },
+    DEFAULT_GATEWAY: state.settings.backend, DEFAULT_GATEWAY_TOKEN: 'test-only-device-code-32-characters',
+    accessForGateway: () => 'test-only-device-code-32-characters', normalizeBackend: x => x, endpoint: (base, path) => base + path,
+    networkFailure: error => error, drawHint() {},
+    setTimeout(callback, ms) { const timer = setTimeout(callback, ms); timer.unref(); return timer; }, clearTimeout,
+    async fetch() { return { ok: true, async json() { return { asr: { streaming: true } }; } }; },
+    async startNativeRecording() { opened++; return { stop: async () => {} }; }, fixtureState: state, fixtureGm: gm
+  });
+  return { context, handlers, nodes, node, button, opened: () => opened };
+}
+async function loadApp(options) {
+  const harness = appHarness(options);
+  const source = (await readFile(new URL('../web/app.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '').replace('void initialize();', '');
+  vm.runInContext(source + `\nstate = fixtureState; bridge = { gm: fixtureGm }; ready = storageLoaded = true; presenter = { present: () => new Promise(() => {}) };`, harness.context);
+  return harness;
+}
+test('实际清单点击处理立即切换页面，眼镜显示永久等待也不阻止音频启动', async () => {
+  const h = await loadApp();
+  let prevented = false;
+  h.handlers.get('main:click')({ target: { closest: () => h.button }, preventDefault() { prevented = true; } });
+  assert.equal(prevented, true);
+  assert.match(h.node('main').innerHTML, /清单已确认，正在启动录音|正在保存访谈/);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.opened(), 1);
+  assert.equal(h.button.disabled, true);
+});
+test('空白清单项在页面持久显示错误，不依赖 WebView 原生表单提示', async () => {
+  const h = await loadApp({ emptyItem: true });
+  await vm.runInContext('confirmAndRecord()', h.context);
+  assert.match(h.node('main').innerHTML, /新增的空白事项请填写或移除/);
+  assert.match(h.node('main').innerHTML, /id="preparation-error"[^>]*role="alert" >/);
+  assert.equal(h.opened(), 0);
+});
+test('存储拒绝显示清单未保存并停止启动，不被眼镜或短暂 toast 掩盖', async () => {
+  const h = await loadApp({ storageFailure: true });
+  await vm.runInContext('confirmAndRecord()', h.context);
+  assert.match(h.node('main').innerHTML, /访谈清单未能保存/);
+  assert.match(h.node('main').innerHTML, /PERMISSION_DENIED/);
+  assert.equal(h.opened(), 0);
+});
+test('旧 WebView 缺少 structuredClone、findLast、at 和 Object.hasOwn 时仍可保存与显示追问', async () => {
+  const source = (await readFile(new URL('../web/core.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '').replace(/^export /gm, '');
+  const context = vm.createContext({ last, hasOwn: (o, k) => Object.prototype.hasOwnProperty.call(o, k), crypto: { getRandomValues: buffer => buffer.fill(7) }, Uint8Array });
+  vm.runInContext('Array.prototype.findLast = undefined; Array.prototype.at = undefined; Object.hasOwn = undefined;', context);
+  const result = vm.runInContext(source + `\nconst state = newState('fde'); const copy = clone(state); const session = current(copy).session; session.questions.push({status:'suggested', text:'仍可显示'}); ({id: session.id, question: activeQuestion(session).text, copied: copy !== state});`, context);
+  assert.equal(result.question, '仍可显示'); assert.equal(result.copied, true); assert.match(result.id, /^[a-f0-9-]{36}$/);
+});
+test('无 AbortSignal 静态方法的请求仍可取消，宿主永久不响应也有超时', async () => {
+  const parent = new AbortController(), deadline = requestDeadline(parent.signal, 5000);
+  const pending = abortable(() => new Promise(() => {}), deadline.signal);
+  parent.abort(new Error('取消启动')); await assert.rejects(pending, /取消启动/); deadline.dispose();
+  await assert.rejects(runInForeground({ runtime: { getLifecycleState: () => new Promise(() => {}) } }, () => {}, { timeoutMs: 5 }), /未响应/);
+});
+
+test('实际主题入口可新建、重新打开和续访，始终选择目标主题的末次会话', async () => {
+  const h = await loadApp();
+  vm.runInContext('presenter = { present: async () => {} };', h.context);
+  const click = async dataset => h.handlers.get('document:click')({ target: { closest: () => ({ dataset }) } });
+  const firstId = vm.runInContext('state.topicId', h.context);
+  await click({ action: 'new-topic', template: 'research' });
+  assert.equal(vm.runInContext('current(state).topic.template', h.context), 'research');
+  assert.equal(vm.runInContext('view', h.context), 'prepare');
+  assert.equal(vm.runInContext('state.topics.length', h.context), 2);
+  await click({ action: 'open-topic', id: firstId });
+  assert.equal(vm.runInContext('state.topicId', h.context), firstId);
+  assert.equal(vm.runInContext('view', h.context), 'live');
+  vm.runInContext('current(state).session.endedAt = now();', h.context);
+  await click({ action: 'resume-topic', id: firstId });
+  assert.equal(vm.runInContext('current(state).topic.sessions.length', h.context), 2);
+  assert.equal(vm.runInContext('state.sessionId === last(current(state).topic.sessions).id', h.context), true);
+  assert.equal(vm.runInContext('view', h.context), 'prepare');
+  assert.equal(h.opened(), 0);
+});
+
+test('分析过程显示进度，未完成流不能写入，眼镜发送不阻塞完成', async () => {
+  const h = await loadApp();
+  h.context.readModelEvents = readModelEvents; h.context.ReadableStream = ReadableStream;
+  let end;
+  const body = new ReadableStream({ start(c) {
+    c.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'delta', text: '{"question":{"text":"草稿？"}}' }) + '\n'));
+    end = () => { c.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'result', result: { claims: [], question: null, actions: [] } }) + '\n')); c.close(); };
+  } });
+  h.context.fetch = async () => new Response(body, { headers: { 'Content-Type': 'application/x-ndjson' } });
+  const pending = vm.runInContext(`current(state).session.confirmed = true; state.settings.mode = 'model'; const probeSegment = addSegment(current(state).session, '回归测试原话', 'manual'); analyzeSegment(probeSegment);`, h.context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(vm.runInContext('probeSegment.analyzedRevision', h.context), null);
+  assert.match(h.node('model-draft').textContent, /草稿/);
+  end(); await pending;
+  assert.equal(vm.runInContext('probeSegment.analyzedRevision', h.context), 0);
+  assert.equal(vm.runInContext('busy', h.context), false);
+});
+test('不支持流读取的宿主仍可使用完整 JSON 接口', async () => {
+  const h = await loadApp(); let accepted;
+  h.context.fetch = async (_url, options) => { accepted = options.headers.Accept; return Response.json({ result: { claims: [], question: null, actions: [] } }); };
+  await vm.runInContext(`current(state).session.confirmed = true; state.settings.mode = 'model'; analyzeSegment(addSegment(current(state).session, '兼容性测试', 'manual'));`, h.context);
+  assert.equal(accepted, undefined); assert.equal(vm.runInContext('busy', h.context), false);
+});
+
+test('结束访谈会等待正在取消的分析，防止忙碌状态吞掉结束后的自动整理',async()=>{
+ const h=await loadApp();let release;h.context.fixturePending=new Promise(r=>{release=r;});
+ vm.runInContext('presenter={present:async()=>{}};current(state).session.confirmed=true;ongoingAnalysis=fixturePending;',h.context);
+ const ending=h.handlers.get('document:click')({target:{closest:()=>({dataset:{action:'end'}})}});
+ await new Promise(r=>setImmediate(r));assert.equal(vm.runInContext('!!current(state).session.endedAt',h.context),false);
+ release();await ending;assert.equal(vm.runInContext('!!current(state).session.endedAt',h.context),true);assert.equal(vm.runInContext('view',h.context),'results');
+});
+
+test('准备页打开分析设置只打开弹窗，不隐式提交录音表单',async()=>{
+ const h=await loadApp();h.node('settings').showModal=()=>{};
+ assert.match(vm.runInContext('serviceBar()',h.context),/<button type="button" data-action="settings">/);
+ await h.handlers.get('document:click')({target:{closest:()=>({dataset:{action:'settings'}})}});
+ assert.equal(h.opened(),0);assert.equal(vm.runInContext('current(state).session.confirmed',h.context),false);
+});
+
+
+test('剧本预设入口填好主题与四条主线，不开录音、不灌入答案；重复点击继续未结束演练',async()=>{
+ const h=await loadApp();h.context.hostPrepare=hostPrepare;h.context.availableQuestions=availableQuestions;
+ vm.runInContext('presenter={present:async()=>{}};',h.context);
+ const click=()=>h.handlers.get('document:click')({target:{closest:()=>({dataset:{action:'open-script-preset'}})}});
+ await click();
+ assert.match(vm.runInContext('current(state).topic.title',h.context),/第一个陌生用户之后/);
+ assert.equal(vm.runInContext('current(state).session.items.map(i=>i.label).join("、")',h.context),'起点、转折、选择、后续');
+ assert.equal(vm.runInContext('current(state).session.segments.length',h.context),0);
+ assert.equal(vm.runInContext('current(state).session.confirmed',h.context),false);
+ assert.equal(h.opened(),0);assert.equal(vm.runInContext('view',h.context),'prepare');
+ await click();assert.equal(vm.runInContext('state.topics.length',h.context),2);
+ vm.runInContext('current(state).session.endedAt=now();',h.context);
+ await click();assert.equal(vm.runInContext('state.topics.length',h.context),3);
+ assert.equal(vm.runInContext('state.topics[1].sessions[0].endedAt!==null',h.context),true);
+});
