@@ -20,3 +20,15 @@ test('暂停、结束和无建议只绘制黑底', () => {
     assert.deepEqual(calls,[[0,0,600,350]]);
   }
 });
+
+test('已开始访谈且无建议显示低亮度待机，暂停和结束优先清屏',()=>{
+  const texts=[];
+  const context={...ctx,fillRect(){},fillText(text){texts.push({text,color:this.fillStyle});}};
+  const canvas={getContext:()=>context};
+  drawHint(canvas,null,{listening:true,chapter:'真实流程'});
+  assert.ok(texts.some(x=>x.text==='安静聆听'));assert.ok(texts.some(x=>x.text==='真实流程'));
+  assert.ok(texts.every(x=>x.color!=='#fff'));assert.ok(texts.some(x=>x.text==='问全·实时访谈助手'));
+  texts.length=0;drawHint(canvas,{text:'有问题'}, {listening:true});
+  assert.ok(texts.some(x=>x.text==='有问题'));assert.ok(!texts.some(x=>x.text==='安静聆听'));
+  for(const options of [{paused:true},{ended:true}]){texts.length=0;drawHint(canvas,null,{listening:true,...options});assert.equal(texts.length,0);}
+});

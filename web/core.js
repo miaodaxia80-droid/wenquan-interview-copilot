@@ -14,9 +14,47 @@ export const now = () => new Date().toISOString();
 export const clone = value => JSON.parse(JSON.stringify(value));
 
 export const TEMPLATES = {
-  host: { label: '主持人访谈', title: '一个普通人第一次做独立项目的经历', role: 'guest',
+  host: { label: '人物经历', title: '一次重要选择背后的故事', role: 'guest', analysisVersion: 2, minutes: 30,
+    description: '从具体经历聊到关键选择，留下有细节的人物故事。',
     goal: '让听众理解为什么开始、关键决定、踩过的坑和现在的看法。',
-    items: [['origin', '起因', '是什么让你决定开始自己的项目？'], ['choice', '关键选择', '过程里做过哪些关键决定，为什么？'], ['difficulty', '最大困难', '最难的一次经历是什么，你如何应对？'], ['reflection', '回看与建议', '现在回看有什么变化，会给后来者什么建议？']] },
+    items: [['origin', '起因', '是什么让你决定开始这件事？', '当时具体发生了什么？\n在那之前，你原本是怎样打算的？'], ['choice', '关键选择', '过程里做过哪些关键决定，为什么？', '当时还有哪些选择？\n你最看重的判断依据是什么？'], ['difficulty', '最大困难', '最难的一次经历是什么，你如何应对？', '能讲讲当时最难的一天吗？\n后来哪一步开始有了变化？'], ['reflection', '回看与建议', '现在回看有什么变化，会给后来者什么建议？', '有什么是现在的你才明白的？\n如果重来一次，你会先做什么？']] },
+  user_research: { label: '用户研究', title: '了解一次真实的使用经历', role: 'guest', analysisVersion: 2, minutes: 25,
+    description: '还原最近一次使用过程，找到阻力、替代办法和真实需求。',
+    goal: '还原用户最近一次完成任务的过程，了解具体困难、已有替代办法，以及对用户最重要的结果。',
+    items: [
+      ['context', '触发与目标', '请回忆最近一次使用的场景，当时你想完成什么？', '是什么让你在那时开始做这件事？\n你怎样判断事情完成了？'],
+      ['journey', '实际过程', '从开始到结束，你具体经过了哪些步骤？', '先做了什么，接下来呢？\n有没有和你预想不同的地方？'],
+      ['friction', '阻力与替代', '哪一步最费力？你当时怎么处理？', '最近一次卡住时具体发生了什么？\n之前用过什么其他办法？'],
+      ['value', '结果与取舍', '最后的结果怎样？你最希望先解决哪个问题？', '这件事给你带来了什么影响？\n什么情况下你会继续用原来的办法？']
+    ] },
+  requirements: { label: '需求澄清', title: '把一个业务需求聊清楚', role: 'guest', analysisVersion: 2, minutes: 40,
+    description: '理清现有流程、例外与交付边界，形成可执行的需求。',
+    goal: '理解真实业务流程与核心问题，明确第一版的范围、人工边界、系统依赖和可检验的验收条件。',
+    items: [
+      ['workflow', '真实流程', '请用最近一个具体案例，讲讲现在从开始到完成的流程。', '每一步由谁处理，需要哪些资料？\n最常卡在哪里，后果是什么？'],
+      ['exceptions', '规则与例外', '哪些判断有明确规则，哪些情况必须请人决定？', '最近一次例外是怎么处理的？\n出错时由谁接手？'],
+      ['scope', '第一版范围', '第一版最需要解决什么，哪些事情先不做？', '如果只能解决一件事，你会选哪件？\n有哪些操作必须由人确认？'],
+      ['dependencies', '资料与系统', '完成这些工作需要哪些资料、系统和负责人？', '数据从哪里来，由谁维护？\n哪些权限或接口还需要确认？'],
+      ['acceptance', '验收与推进', '用哪些具体案例和标准判断第一版可用？', '最不能出错的情况是什么？\n接下来哪些事项由谁确认？']
+    ] },
+  retrospective: { label: '项目复盘', title: '一次项目的过程与复盘', role: 'guest', analysisVersion: 2, minutes: 30,
+    description: '对照目标和结果，找到关键决策与下一次可改进的动作。',
+    goal: '基于具体事件还原项目过程，区分目标与结果，理解关键决策、影响因素和下一次可执行的改进。',
+    items: [
+      ['target', '目标与结果', '项目一开始希望达成什么，最后实际结果如何？', '当时怎样衡量成功？\n哪些结果有记录可以核对？'],
+      ['turning', '关键节点', '哪些具体事件改变了项目的走向？', '当时做了什么决定，依据是什么？\n有哪些信息是后来才知道的？'],
+      ['causes', '有效与受阻', '哪些做法起了作用，哪些环节反复受阻？', '能举一个具体例子吗？\n哪些因素当时可以控制？'],
+      ['improve', '下次怎么做', '下次遇到类似情况，你会保留和改变什么？', '最先可以执行的一个改进是什么？\n由谁推进，什么时候检查效果？']
+    ] },
+  expert: { label: '专业观点', title: '把一个专业问题讲明白', role: 'guest', analysisVersion: 2, minutes: 30,
+    description: '追问判断依据、实际案例和适用边界，让观点有据可查。',
+    goal: '厘清专业议题的关键概念、主要判断与证据，呈现不同观点和适用边界，区分已知事实与预测。',
+    items: [
+      ['definition', '问题与概念', '讨论这个问题之前，有哪些概念需要先说清楚？', '人们最常混淆什么？\n为什么现在值得讨论？'],
+      ['judgment', '判断与依据', '你的核心判断是什么，主要依据来自哪里？', '有什么可核对的数据或案例？\n哪些是观察，哪些仍是假设？'],
+      ['case', '案例与分歧', '能用一个实际案例说明吗？不同意见通常在哪里？', '这个案例有什么特殊条件？\n有什么反例让你修正过判断？'],
+      ['limits', '边界与行动', '这个判断在什么条件下成立，又有哪些限制？', '哪些情况不适用？\n听众现在可以先验证什么？']
+    ] },
   fde: {
     label: 'FDE 需求访谈', title: '售后工单 Agent', role: '客服主管',
     goal: '确认第一版工单分派流程，以及 AI 与人工处理的边界。',
@@ -45,9 +83,9 @@ export const TEMPLATES = {
 export function newSession(template, topicId, priorItems) {
   const t = TEMPLATES[template] || TEMPLATES.custom;
   return {
-    ...(template === 'host' ? { analysisVersion: 2, currentChapterId: priorItems?.[0]?.id || 'origin', chapterStates: {}, chapterSummaries: {}, speakerBindings: {}, displayedQuestionId: null, guestBackground: '', backgroundSource: '', boundaries: '' } : {}),
+    ...(t.analysisVersion === 2 ? { analysisVersion: 2, plannedMinutes: t.minutes, currentChapterId: priorItems?.[0]?.id || t.items[0]?.[0] || null, chapterStates: {}, chapterSummaries: {}, speakerBindings: {}, displayedQuestionId: null, guestBackground: '', backgroundSource: '', boundaries: '' } : {}),
     id: uid(), topicId, goal: t.goal, role: t.role, startedAt: now(), endedAt: null,
-    items: priorItems ? priorItems.map(i => ({ ...i })) : t.items.map(([id, label, question], index) => ({ id, label, question, priority: template === 'host' ? Math.min(3, t.items.length - index) : t.items.length - index })),
+    items: priorItems ? priorItems.map(i => ({ ...i })) : t.items.map(([id, label, question, preparedQuestions = ''], index) => ({ id, label, question, preparedQuestions, priority: t.analysisVersion === 2 ? (index < 2 ? 3 : 2) : t.items.length - index })),
     confirmed: false, segments: [], pendingAsr: [], claims: [], questions: [], actions: [], revision: 0,
     paused: false, demoStep: 0, events: []
   };
@@ -55,24 +93,6 @@ export function newSession(template, topicId, priorItems) {
 export function newTopic(template = 'host') {
   const id = uid();
   return { id, title: TEMPLATES[template].title, template, createdAt: now(), sessions: [newSession(template, id)] };
-}
-// Preparation only: the script never preloads answers or generated conclusions.
-export function newScriptTopic() {
-  const topic=newTopic('host'), session=topic.sessions[0];
-  topic.presetId='first-stranger';
-  topic.title='第一个陌生用户之后：一个校园工具为什么差点做不下去';
-  session.goal='聊清楚小周做校园报名工具的起因、一次具体挫折、取舍依据和当前状态，留下可以继续写成访谈文章的材料。';
-  session.guestBackground='虚构演示人物：学生开发者小周，课余维护校园报名工具。主持人小林；嘉宾小周。';
-  session.backgroundSource='问全《第一个陌生用户之后》两人演示剧本；人物、经历与数字均为虚构。';
-  session.boundaries='不讨论学校、社团及真实用户身份；不将计划说成已上线。开场自然说明主持人与嘉宾角色。';
-  session.items=[
-    ['origin','起点','你为什么开始做这个校园报名工具？'],
-    ['turning','转折','哪件具体的事改变了你对这个工具的判断？'],
-    ['choice','选择','这件事之后，你做了什么取舍，为什么？'],
-    ['next','后续','目前如何维护，接下来想确认什么？']
-  ].map(([id,label,question])=>({id,label,question,priority:2,preparedQuestions:''}));
-  session.currentChapterId=session.items[0].id;
-  return topic;
 }
 export function newState(template = 'host') {
   const topic = newTopic(template);

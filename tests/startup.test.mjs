@@ -150,20 +150,31 @@ test('准备页打开分析设置只打开弹窗，不隐式提交录音表单',
 });
 
 
-test('剧本预设入口填好主题与四条主线，不开录音、不灌入答案；重复点击继续未结束演练',async()=>{
+test('五种模板入口建立独立 v2 访谈，保留原记录，不开录音也不灌入答案',async()=>{
  const h=await loadApp();h.context.hostPrepare=hostPrepare;h.context.availableQuestions=availableQuestions;
  vm.runInContext('presenter={present:async()=>{}};',h.context);
- const click=()=>h.handlers.get('document:click')({target:{closest:()=>({dataset:{action:'open-script-preset'}})}});
- await click();
- assert.match(vm.runInContext('current(state).topic.title',h.context),/第一个陌生用户之后/);
- assert.equal(vm.runInContext('current(state).session.items.map(i=>i.label).join("、")',h.context),'起点、转折、选择、后续');
- assert.equal(vm.runInContext('current(state).session.segments.length',h.context),0);
- assert.equal(vm.runInContext('current(state).session.confirmed',h.context),false);
- assert.equal(h.opened(),0);assert.equal(vm.runInContext('view',h.context),'prepare');
- await click();assert.equal(vm.runInContext('state.topics.length',h.context),2);
- vm.runInContext('current(state).session.endedAt=now();',h.context);
- await click();assert.equal(vm.runInContext('state.topics.length',h.context),3);
- assert.equal(vm.runInContext('state.topics[1].sessions[0].endedAt!==null',h.context),true);
+ const html=vm.runInContext('renderTopics()',h.context);
+ assert.equal((html.match(/data-action="new-topic"/g)||[]).length,5);
+ assert.doesNotMatch(html,/体验示例|open-script-preset|小林|小周/);
+ for(const template of ['host','user_research','requirements','retrospective','expert']){
+  await h.handlers.get('document:click')({target:{closest:()=>({dataset:{action:'new-topic',template}})}});
+  assert.equal(vm.runInContext('current(state).session.analysisVersion',h.context),2);
+  assert.ok(vm.runInContext('current(state).session.items.length',h.context)>=4);
+  assert.equal(vm.runInContext('current(state).session.segments.length',h.context),0);
+  assert.equal(vm.runInContext('current(state).session.confirmed',h.context),false);
+  assert.equal(vm.runInContext('view',h.context),'prepare');
+ }
+ assert.equal(h.opened(),0);assert.equal(vm.runInContext('state.topics.length',h.context),6);
+ assert.equal(vm.runInContext('state.topics[0].template',h.context),'fde');
+});
+
+test('眼镜待机画面需要已确认的活动访谈，暂停或结束仍清屏',async()=>{
+ const h=await loadApp();h.context.frames=[];
+ vm.runInContext(`state=newState('host');storageLoaded=ready=true;presenter={present:async(_canvas,clear,metadata)=>frames.push({clear,metadata})};`,h.context);
+ await vm.runInContext('syncGlasses()',h.context);assert.equal(h.context.frames.at(-1).clear,true);
+ await vm.runInContext('current(state).session.confirmed=true;syncGlasses()',h.context);assert.equal(h.context.frames.at(-1).clear,false);assert.equal(h.context.frames.at(-1).metadata.questionId,null);
+ await vm.runInContext('current(state).session.paused=true;syncGlasses()',h.context);assert.equal(h.context.frames.at(-1).clear,true);
+ await vm.runInContext('current(state).session.paused=false;current(state).session.endedAt=now();syncGlasses()',h.context);assert.equal(h.context.frames.at(-1).clear,true);
 });
 
 test('语音积压按稳定批次分析且逐段保留，不为每个短句重复调用模型',async()=>{

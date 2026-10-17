@@ -4,7 +4,7 @@ import { interviewContext, availableQuestions, selectQuestion, questionFeedback,
 import { hostPrepare, hostLive, hostResults, roleOptions } from './interview-ui.js';
 import { readModelEvents } from './model-stream.js';
 import { last, requestDeadline } from './platform.js';
-import { STATUS, KIND, TEMPLATES, uid, now, clone, newState, newTopic, newScriptTopic, newSession, current, addSegment, correctSegment, itemStatus, activeQuestion, contextFor, applyAnalysis, feedback, exportMarkdown } from './core.js';
+import { STATUS, KIND, TEMPLATES, uid, now, clone, newState, newTopic, newSession, current, addSegment, correctSegment, itemStatus, activeQuestion, contextFor, applyAnalysis, feedback, exportMarkdown } from './core.js';
 import { DEMOS, demoAnalysis } from './fixtures.js';
 import { connectBridge, GlassPresenter, drawHint } from './device.js';
 import { readSelectedFile, runInForeground } from './foreground.js';
@@ -109,7 +109,8 @@ async function modelApi(path, data, signal, task) {
 }
 function serviceBar() { return `<div class="servicebar"><span>${state.settings.mode === 'demo' ? '离线脚本演示 · 固定结果' : '云端模型 · 流式分析'}</span><button type="button" data-action="settings">分析设置 ↗</button></div>`; }
 function renderTopics() {
-  return `<div class="lead"><div class="eyebrow">每次交流，都有一个想弄清的问题</div><h1>访谈主题</h1><p class="muted">继续上次没问清的事，或从一个新目标开始。</p></div><details class="card"><summary>体验示例 · 两人剧本</summary><div class="eyebrow">两人剧本 · 6–8 分钟</div><h2>第一个陌生用户之后</h2><p class="fine">小林采访小周。主题、目标与四条主线已准备好，配合剧本即可演示。</p><button class="primary wide space-top" data-action="open-script-preset">打开剧本演示预设 →</button></details>${state.topics.map(t => `<article class="topic ${t.id === state.topicId ? 'selected' : ''}"><div class="between"><h2>${esc(t.title)}</h2><span class="pill">${esc(TEMPLATES[t.template]?.label || '自定义')}</span></div><p class="muted">${t.sessions.length} 次访谈 · ${t.sessions.reduce((n, s) => n + s.segments.length, 0)} 段对话</p><p class="fine">${esc(last(t.sessions).goal)}</p><div class="row topic-actions"><button class="secondary small" data-action="open-topic" data-id="${t.id}">打开记录</button><button class="small" data-action="resume-topic" data-id="${t.id}">新一次访谈</button><button class="small danger" data-action="delete-topic" data-id="${t.id}">删除</button></div>${deleteId === t.id ? `<div class="delete-confirm">确认删除这份本机记录？此操作不能撤销，建议先导出。<div class="row"><button class="small" data-action="cancel-delete">取消</button><button class="small" data-action="download-topic" data-id="${t.id}">先导出</button><button class="small danger" data-action="confirm-delete" data-id="${t.id}">确认删除</button></div></div>` : ''}</article>`).join('')}<section class="card"><h2>创建新主题</h2><div class="template-grid">${Object.entries(TEMPLATES).filter(([key])=>key==='host').map(([key, t]) => `<button data-action="new-topic" data-template="${key}">${esc(t.label)}<br><span class="fine">＋ 新建</span></button>`).join('')}</div></section>`;
+  const templates = Object.entries(TEMPLATES).filter(([, t]) => t.analysisVersion === 2);
+  return `<div class="lead"><div class="eyebrow">每次交流，都有一个想弄清的问题</div><h1>从一个好问题开始。</h1><p class="muted">选一个适合的模板，目标与提纲已经备好。</p></div><section class="template-section" aria-labelledby="template-title"><div class="section-head"><h2 id="template-title">开始新访谈</h2><span class="fine">提纲可自由修改</span></div><div class="interview-templates">${templates.map(([key, t]) => `<article class="interview-template"><div class="between"><h3>${esc(t.label)}</h3><span class="template-time">约 ${t.minutes} 分钟</span></div><p>${esc(t.description)}</p><div class="template-outline">${t.items.map(i => esc(i[1])).join('<span aria-hidden="true"> / </span>')}</div><button class="small secondary" data-action="new-topic" data-template="${key}" aria-label="使用${esc(t.label)}模板">使用模板 <span aria-hidden="true">↗</span></button></article>`).join('')}</div></section><section class="topic-history" aria-labelledby="history-title"><div class="section-head"><h2 id="history-title">我的访谈</h2><span class="fine">${state.topics.length} 个主题</span></div>${state.topics.map(t => `<article class="topic ${t.id === state.topicId ? 'selected' : ''}"><div class="between"><h2>${esc(t.title)}</h2><span class="pill">${esc(TEMPLATES[t.template]?.label || '自定义')}</span></div><p class="muted">${t.sessions.length} 次访谈 · ${t.sessions.reduce((n, s) => n + s.segments.length, 0)} 段对话</p><p class="fine">${esc(last(t.sessions).goal)}</p><div class="row topic-actions"><button class="secondary small" data-action="open-topic" data-id="${t.id}">打开记录</button><button class="small" data-action="resume-topic" data-id="${t.id}">新一次访谈</button><button class="small danger" data-action="delete-topic" data-id="${t.id}">删除</button></div>${deleteId === t.id ? `<div class="delete-confirm">确认删除这份本机记录？此操作不能撤销，建议先导出。<div class="row"><button class="small" data-action="cancel-delete">取消</button><button class="small" data-action="download-topic" data-id="${t.id}">先导出</button><button class="small danger" data-action="confirm-delete" data-id="${t.id}">确认删除</button></div></div>` : ''}</article>`).join('')}</section>`;
 }
 function renderPrepare(t, s) {
   if (s.analysisVersion === 2) return hostPrepare(t, s, { progress: modelProgressMarkup(), error: preparationError, starting: prepareStarting, busy, service: serviceBar() });
@@ -144,21 +145,21 @@ function render() {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if(renderedPanelKey)openPanels.set(renderedPanelKey,[...document.querySelectorAll('#main details[open]')].map(el=>el.querySelector('summary')?.textContent));
   renderedPanelKey=state.sessionId+':'+view;
-  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全 v0.5.1 · 留心听，问清楚。</footer>';
+  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全·实时访谈助手 v0.5.2 · 留心听，问清楚。</footer>';
   for(const el of document.querySelectorAll('#host-question,#outline-paste,[data-summary]')){const key=state.sessionId+':'+(el.id||el.dataset.summary);if(inputDrafts.has(key))el.value=inputDrafts.get(key);}
   for(const el of document.querySelectorAll('#main details'))if(openPanels.get(renderedPanelKey)?.includes(el.querySelector('summary')?.textContent))el.open=true;
   drawPreview(); updateModelProgress();
 }
 function drawPreview() {
   const { session } = current(state), q = activeQuestion(session);
-  drawHint(localCanvas, q, { paused: session.paused, ended: !!session.endedAt, demo: q?.source === 'demo' || state.settings.mode === 'demo', chapter: session.items.find(item => item.id === q?.itemId)?.label || '' });
+  drawHint(localCanvas, q, { paused: session.paused, ended: !!session.endedAt, demo: q?.source === 'demo' || state.settings.mode === 'demo', listening: !!session.confirmed, chapter: session.items.find(item => item.id === (q?.itemId || session.currentChapterId))?.label || '' });
   if ($('hud')) { $('hud').width = 600; $('hud').height = 350; $('hud').getContext('2d').drawImage(localCanvas, 0, 0); }
 }
 async function syncGlasses() {
   drawPreview();
   if (!ready || !runtimeActive) { delivery = '手机预览可用；尚未连接显示接口'; return; }
   const { session } = current(state);
-  await presenter.present(localCanvas, session.paused || !!session.endedAt || !activeQuestion(session), {sessionId:session.id,questionId:activeQuestion(session)?.id || null,stableAt:session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
+  await presenter.present(localCanvas, session.paused || !!session.endedAt || !session.confirmed, {sessionId:session.id,questionId:activeQuestion(session)?.id || null,stableAt:session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
 }
 async function api(path, data, { binary = false, signal, backend = state.settings.backend, token = gatewayToken(backend), onProgress } = {}) {
   backend = normalizeBackend(backend, mobileHost);
@@ -444,18 +445,17 @@ document.addEventListener('click', async event => {
       if (!state.topics.length) state.topics.push(newTopic('custom'));
       state.topicId = state.topics[0].id; state.sessionId = last(state.topics[0].sessions).id; deleteId = null; view = 'topics'; draft = ''; await save(); await syncGlasses(); render(); return;
     }
-    if (['open-topic', 'open-session', 'resume-topic', 'new-topic', 'open-script-preset'].includes(action)) {
+    if (['open-topic', 'open-session', 'resume-topic', 'new-topic'].includes(action)) {
       resumeCaptureSessionId = null;
       cancelRequest(); await stopRecording(true); capturedMs = 0; streamError = ''; draft = ''; draftSource = 'manual'; audioBlob = null; audioName = ''; audioNotice = '';
       let next = state.topics.find(t => t.id === (button.dataset.topic || id));
-      if (action === 'new-topic') { next = newTopic(button.dataset.template); state.topics.push(next); }
-      if(action==='open-script-preset'){next=state.topics.find(t=>t.presetId==='first-stranger'&&!last(t.sessions).endedAt);if(!next){next=newScriptTopic();state.topics.push(next);}state.settings.mode='model';draftRole='unknown';}
+      if (action === 'new-topic') { if (!Object.prototype.hasOwnProperty.call(TEMPLATES, button.dataset.template)) return; next = newTopic(button.dataset.template); state.topics.push(next); state.settings.mode = 'model'; draftRole = 'unknown'; }
       state.topicId = next.id;
       if (action === 'resume-topic') {
         const prior = last(next.sessions);
         if (!prior.endedAt) { notify('该主题已有进行中的访谈，已打开。'); state.sessionId = prior.id; view = prior.confirmed ? 'live' : 'prepare'; }
         else { const added = newSession(next.template, next.id, prior.items); added.goal = prior.goal; added.role = prior.role; if (prior.analysisVersion === 2) { added.guestBackground=prior.guestBackground; added.backgroundSource=prior.backgroundSource; added.boundaries=prior.boundaries; } next.sessions.push(added); state.sessionId = added.id; view = 'prepare'; }
-      } else { state.sessionId = action === 'open-session' ? id : last(next.sessions).id; view = action === 'new-topic' || (action==='open-script-preset'&&!last(next.sessions).confirmed) ? 'prepare' : 'live'; }
+      } else { state.sessionId = action === 'open-session' ? id : last(next.sessions).id; view = action === 'new-topic' ? 'prepare' : 'live'; }
       await save(); render(); await syncGlasses(); return;
     }
     if (action === 'add-item' || action === 'remove-item' || action === 'move-item') {

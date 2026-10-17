@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="zh-CN">
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>问全 · 眼镜端设计预览</title>
+<title>问全·实时访谈助手 · 眼镜端设计预览</title>
 <style>
 :root { color-scheme:dark; font-family:"PingFang SC",sans-serif; background:#101517; color:#eef3f1 }
 *{box-sizing:border-box} body{margin:0} main{max-width:1320px;margin:auto;padding:48px 44px 60px}
@@ -17,13 +17,13 @@ figcaption{display:flex;justify-content:space-between;align-items:center;padding
 </style>
 <svg width="0" height="0" aria-hidden="true" style="position:absolute"><filter id="phosphor" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values=".52 0 0 0 0  0 .94 0 0 0  0 0 .35 0 0  0 0 0 1 0"/></filter></svg>
 <main>
-<header><div class="brand">问全</div><div class="edition">GLASSES INTERFACE · 0.5.1</div></header>
-<div class="intro"><div><h1>一句追问，留住对话的深处。</h1><p>更大的问句，更轻的上下文。只在值得追问时出现。</p></div><button id="mode">切换为原始灰度</button></div>
+<header><div class="brand">问全·实时访谈助手</div><div class="edition">GLASSES INTERFACE · 0.5.2</div></header>
+<div class="intro"><div><h1>一句追问，留住对话的深处。</h1><p>更大的问句，更轻的上下文。安静聆听时待机，有追问时提醒。</p></div><button id="mode">切换为原始灰度</button></div>
 <div class="grid">
 <figure><div class="surface"><canvas id="short" aria-label="深入追问示例"></canvas></div><figcaption>深入追问<span>根据嘉宾原话</span></figcaption></figure>
 <figure><div class="surface"><canvas id="long" aria-label="长问句示例"></canvas></div><figcaption>补充细节<span>长问句 · 均衡换行</span></figcaption></figure>
 <figure><div class="surface"><canvas id="mixed" aria-label="自然转场示例"></canvas></div><figcaption>自然转场<span>中英文混排</span></figcaption></figure>
-<figure><div class="surface"><canvas id="quiet" aria-label="暂停时黑屏"></canvas></div><figcaption>安静聆听<span>暂停、结束、暂无建议时黑屏</span></figcaption></figure>
+<figure><div class="surface"><canvas id="quiet" aria-label="安静聆听待机界面"></canvas></div><figcaption>安静聆听<span>暂无建议时低亮待机 · 暂停和结束清屏</span></figcaption></figure>
 </div>
 <p class="note">使用产品实际绘制代码 · 原生画布 600 × 350 · 16 级灰度。绿色仅用于模拟发光效果，真实光学观感以设备为准。</p>
 </main>
@@ -33,7 +33,7 @@ const examples = [
  ['short',{hint:'社团当时遇到什么麻烦？',type:'deepen'},{chapter:'最初的起点'}],
  ['long',{hint:'第一次发现用户的真实需求和最初设想不同时，你做了什么？',type:'supplement'},{chapter:'产品与用户'}],
  ['mixed',{hint:'从 Demo 到落地，最难的一步是什么？',type:'transition'},{chapter:'从想法到实践'}],
- ['quiet',{hint:'社团当时遇到什么麻烦？',type:'deepen'},{paused:true}]
+ ['quiet',null,{listening:true,chapter:'最初的起点'}]
 ];
 for(const [id,q,options] of examples)drawHint(document.getElementById(id),q,options);
 document.getElementById('mode').onclick=()=>{document.body.classList.toggle('white');document.getElementById('mode').textContent=document.body.classList.contains('white')?'切换为模拟绿色':'切换为原始灰度'};

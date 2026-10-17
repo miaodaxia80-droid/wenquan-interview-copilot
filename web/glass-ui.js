@@ -53,36 +53,44 @@ function ellipsize(ctx, text, width) {
   return chars.join('') + '…';
 }
 
-export function drawHint(canvas, question, { paused = false, ended = false, demo = false, chapter = '' } = {}) {
+export function drawHint(canvas, question, { paused = false, ended = false, listening = false, demo = false, chapter = '' } = {}) {
   canvas.width = 600; canvas.height = 350;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 600, 350);
-  if (paused || ended || !question) return;
+  if (paused || ended) return;
   const text = compactHint(question).trim();
-  if (!text) return;
+  if (!text && !listening) return;
 
   // These values land exactly on GRAY_4 levels; the glasses choose the hue.
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.fillStyle = '#bbb'; ctx.fillRect(32, 36, 3, 19);
   ctx.font = `500 22px ${FONT}`;
-  const label = { deepen: '深入追问', supplement: '补充细节', transition: '自然转场' }[question.type] || '可以追问';
+  const label = text ? ({ deepen: '深入追问', supplement: '补充细节', transition: '自然转场' }[question.type] || '可以追问') : '访谈进行中';
   ctx.fillText(label, 48, 54);
   ctx.font = `400 20px ${FONT}`; ctx.fillStyle = '#888';
   const context = ellipsize(ctx, chapter, 300);
   ctx.textAlign = 'right'; ctx.fillText(context, 552, 54); ctx.textAlign = 'left';
 
-  ctx.font = `500 44px ${FONT}`;
-  let lines = hintLines(ctx, text);
-  // Defensive fallback for unusual font metrics, without clipping any text.
-  for (let size = 42; lines.length > 3 && size >= 28; size -= 2) {
-    ctx.font = `500 ${size}px ${FONT}`; lines = hintLines(ctx, text);
+  if (text) {
+    ctx.font = `500 44px ${FONT}`;
+    let lines = hintLines(ctx, text);
+    // Defensive fallback for unusual font metrics, without clipping any text.
+    for (let size = 42; lines.length > 3 && size >= 28; size -= 2) {
+      ctx.font = `500 ${size}px ${FONT}`; lines = hintLines(ctx, text);
+    }
+    const firstBaseline = 184 - (lines.length - 1) * 28;
+    ctx.fillStyle = '#fff';
+    lines.forEach((line, i) => ctx.fillText(line, 48, firstBaseline + i * 56));
+  } else {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#555'; ctx.fillRect(276, 115, 48, 2);
+    ctx.font = `400 36px ${FONT}`; ctx.fillStyle = '#999'; ctx.fillText('安静聆听', 300, 178);
+    ctx.font = `400 21px ${FONT}`; ctx.fillStyle = '#777'; ctx.fillText('有新的追问，会在这里提醒你', 300, 222);
+    ctx.textAlign = 'left';
   }
-  const firstBaseline = 184 - (lines.length - 1) * 28;
-  ctx.fillStyle = '#fff';
-  lines.forEach((line, i) => ctx.fillText(line, 48, firstBaseline + i * 56));
 
   ctx.fillStyle = '#555'; ctx.fillRect(48, 291, 28, 2);
-  ctx.font = `500 20px ${FONT}`; ctx.fillStyle = '#888'; ctx.fillText('问全', 88, 299);
+  ctx.font = `500 20px ${FONT}`; ctx.fillStyle = '#888'; ctx.fillText('问全·实时访谈助手', 88, 299);
   if (demo) { ctx.textAlign = 'right'; ctx.fillText('离线演示', 552, 299); }
 }

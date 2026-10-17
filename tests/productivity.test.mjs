@@ -48,4 +48,3 @@ test('会中操作和备选默认折叠，保留既有动作，眼镜短提示�
 test('会中折叠标签成对，避免浏览器提前关闭整个主线面板',()=>{
  const {t,s}=setup();const html=hostLive(t,s,{capture:'',progress:'',delivery:''});assert.equal((html.match(/<details\b/g)||[]).length,(html.match(/<\/details>/g)||[]).length);
 });
-
