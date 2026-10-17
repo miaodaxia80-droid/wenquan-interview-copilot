@@ -34,14 +34,16 @@
 3. 会中先听回答，眼镜显示一条可选建议和主线上下文。实际自拟问题也可记录，已问与已回应分别管理。
 4. 点击“结束并整理”，生成整场核心内容、按主线归纳与待补问；要点带嘉宾原话出处，章节摘要可编辑并导出 Markdown。
 
-本地个人安装包：
+队友安装入口：[0.5.5 发布页](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/releases/tag/v0.5.5) · [下载 Studio 组合包](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/releases/download/v0.5.5/wenquan-0.5.5-Studio.zip)。下载 `wenquan-0.5.5-Studio.zip`，将整个 ZIP 导入 MemoMind Studio 后扫码安装；允许网络和录音权限，手机联网即可使用预置云端服务，无需手动填写设备访问码。安装请选发布附件，自动生成的 Source code 是源码归档。
+
+本地安装包（与发布附件内容一致）：
 
 - `release/问全-0.5.5-Studio.zip`：原生 Studio 导出的组合包，包含官方 GM Web Bridge v2，可导入 Studio 后扫码安装。
 - `release/wenquan-0.5.5.mmpkg`：手机插件包。
 
 Studio 已加载 0.5.5，显示“推荐组合：眼镜协议完全匹配”。本轮在眼镜模拟器验证零语音开场建议，并用两段虚构发言调用真实模型验证追问更新；保存重试后保留 9 个分块，最终构建刷新恢复记录。此前 0.5.4 已验证大记录保存与旧数据迁移，见对应验收文档。实体手机扫码安装、真实眼镜佩戴效果待用户验证。公网网关沿用 0.5.0，本轮未部署服务端。
 
-个人安装包预置本人网关设备访问码，仅供本人使用，不上传 GitHub。服务端模型与 ASR Key 不在手机包内。Studio 导出的 review v3 与当前 SDK 只接受 review v1/v2 的组合 ZIP 检查器存在兼容差异；本次完成配对元数据、组件字节及 review 哈希核对，不代表签名或审核批准。
+0.5.5 组合包按项目所有者要求公开发布，内置共享网关设备访问凭证，供队友直接联调；服务端模型与 ASR Key 不在手机包内。源码默认不包含设备访问凭证，重新构建时仍需配置。若设备保存过其他网关或访问码，需在设置中核对旧配置。发布附件 SHA-256：`fcbb58cb258a60b0337a893b4fff577140a90c27a81fd2c01ca7a8079f539920`。Studio 导出的 review v3 与当前 SDK 只接受 review v1/v2 的组合 ZIP 检查器存在兼容差异；本次完成配对元数据、组件字节及 review 哈希核对，不代表签名或审核批准。
 
 ## 源码与版本
 
