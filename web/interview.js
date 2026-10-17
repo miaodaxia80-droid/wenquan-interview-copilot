@@ -64,24 +64,24 @@ export function bindSpeaker(s, key, role) {
   for (const seg of s.segments) seg.analyzedRevision = null;
   s.revision++;
 }
-export function interviewContext(topic, s, segment) {
+export function interviewContext(topic, s, segment, batch = [segment]) {
   // Reserve source-backed memory per chapter before filling the recent window.
   // Every claim sent still has its verbatim source in the context.
   const memory = s.items.flatMap(i => s.claims.filter(c => c.itemId === i.id).filter((_, index, list) => index < 2 || index >= list.length - 4));
-  const wanted = new Set([segment.id, ...memory.map(c => c.segmentId)]);
+  const wanted = new Set([...batch.map(x=>x.id), ...memory.map(c => c.segmentId)]);
   const selected = [], included = new Set(); let budget = 40000;
-  const take = seg => { if (!seg || included.has(seg.id) || seg.text.length > budget) return; budget -= seg.text.length; selected.push({ id: seg.id, text: seg.text, role: seg.role, sessionId: s.id, speakerKey: seg.speakerKey || null }); included.add(seg.id); };
-  take(segment);
+  const take = seg => { if (!seg || included.has(seg.id) || seg.text.length > budget) return; budget -= seg.text.length; selected.push({ id: seg.id, text: seg.text, role: seg.role, sessionId: s.id, speakerKey: seg.speakerKey || null, index: s.segments.indexOf(seg)+1 }); included.add(seg.id); };
+  for (const seg of batch) take(seg);
   for (const seg of s.segments) if (wanted.has(seg.id)) take(seg);
   for (const seg of [...s.segments].reverse().slice(0, 80)) take(seg);
-  return { analysisVersion: 2, revision: s.revision, segmentRevision: segment.revision, sessionId: s.id, segmentId: segment.id, topic: topic.title, goal: s.goal, role: segment.role, guestBackground: s.guestBackground || '', backgroundSource: s.backgroundSource || '', boundaries: s.boundaries || '', currentChapterId: s.currentChapterId, items: s.items, chapterStates: s.chapterStates || {}, segments: selected, claims: memory.filter(c => included.has(c.segmentId)), questions: s.questions.slice(-100).map(q => ({ id: q.id, itemId: q.itemId, text: q.text, status: q.status, informationGoal: q.informationGoal, segmentId: q.segmentId, askedSegmentId: q.askedSegmentId, askedAfter: q.askedAfter, response: q.response })), segmentIndex: s.segments.indexOf(segment) + 1 };
+  return { analysisVersion: 2, batchIds: batch.map(x=>x.id), revision: s.revision, segmentRevision: segment.revision, sessionId: s.id, segmentId: segment.id, topic: topic.title, goal: s.goal, role: segment.role, guestBackground: s.guestBackground || '', backgroundSource: s.backgroundSource || '', boundaries: s.boundaries || '', currentChapterId: s.currentChapterId, items: s.items, chapterStates: s.chapterStates || {}, plannedMinutes:s.plannedMinutes||0, elapsedMinutes:Math.max(0,(Date.now()-Date.parse(s.startedAt))/60000)||0, segments: selected, claims: memory.filter(c => included.has(c.segmentId)), questions: s.questions.slice(-100).map(q => ({ id: q.id, itemId: q.itemId, text: q.text, status: q.status, informationGoal: q.informationGoal, segmentId: q.segmentId, askedSegmentId: q.askedSegmentId, askedAfter: q.askedAfter, response: q.response })), segmentIndex: s.segments.indexOf(segment) + 1 };
 }
 export function validateInterview(raw, ctx) {
   if (!raw || raw.analysisVersion !== 2 || !Array.isArray(raw.candidates) || raw.candidates.length > 3 || !Array.isArray(raw.claims) || raw.claims.length > 30 || !Array.isArray(raw.responses) || raw.responses.length > 30 || !Array.isArray(raw.hostQuestions) || raw.hostQuestions.length > 5) throw new Error('主持人分析 v2 结构无效。');
   const items = new Map(ctx.items.map(i => [i.id, i])), segments = new Map(ctx.segments.map(s => [s.id, s])), current = segments.get(ctx.segmentId);
   const cite = (v, role, currentOnly = false) => {
     const seg = segments.get(v.segmentId);
-    if (!seg || seg.role !== role || (currentOnly && seg.id !== ctx.segmentId) || !text(v.quote) || !seg.text.includes(v.quote)) throw new Error('原话依据或说话人归属无效。');
+    if (!seg || seg.role !== role || (currentOnly && !(ctx.batchIds || [ctx.segmentId]).includes(seg.id)) || !text(v.quote) || !seg.text.includes(v.quote)) throw new Error('原话依据或说话人归属无效。');
     return { segmentId: seg.id, quote: v.quote };
   };
   const chapter = v => { if (!items.has(v.itemId)) throw new Error('主线归属无效。'); return v.itemId; };
@@ -97,12 +97,16 @@ export function validateInterview(raw, ctx) {
     seen.add(key); goals.add(goal);
     const evidence = q.basisType === 'transcript' ? cite(q, 'guest') : { segmentId: null, quote: null };
     if (q.type === 'deepen' && q.basisType !== 'transcript') throw new Error('深挖题必须有嘉宾原话。');
-    return { itemId: chapter(q), text: q.text, gap: q.gap, informationGoal: q.informationGoal, type: q.type, basisType: q.basisType, ...evidence };
-  }).filter(q => !ctx.questions.some(old => normalizedQuestion(old.text) === normalizedQuestion(q.text) && ['asked', 'answered', 'skipped', 'deferred'].includes(old.status)));
+    if ((ctx.shortHints || q.hint != null) && !text(q.hint, 28)) throw new Error('眼镜提示应为 1–28 字。');
+    return { itemId: chapter(q), text: q.text, hint: q.hint || null, gap: q.gap, informationGoal: q.informationGoal, type: q.type, basisType: q.basisType, ...evidence };
+  }).filter(q => !ctx.questions.some(old => (normalizedQuestion(old.text) === normalizedQuestion(q.text) || (old.informationGoal && normalizedQuestion(old.informationGoal) === normalizedQuestion(q.informationGoal))) && ['asked', 'answered', 'skipped', 'deferred'].includes(old.status)));
   const responses = raw.responses.map(r => {
-    const q = ctx.questions.find(q => q.id === r.questionId && ['asked', 'candidate', 'displayed', 'deferred'].includes(q.status));
-    if (!q || q.status === 'asked' && (ctx.segmentIndex <= (q.askedAfter || 0) || q.askedSegmentId === ctx.segmentId)) throw new Error('回应关联问题或轮次无效。');
-    return { questionId: q.id, ...cite(r, 'guest', true) };
+    const freshHost=raw.hostQuestions.find(h=>`host:${h.segmentId}`===r.questionId && !h.questionId);
+    const q = ctx.questions.find(q => q.id === r.questionId && ['asked', 'candidate', 'displayed', 'deferred'].includes(q.status)) || (freshHost ? {status:'asked',askedAfter:segments.get(freshHost.segmentId)?.index,askedSegmentId:freshHost.segmentId} : null);
+    const matchedHost=raw.hostQuestions.find(h=>h.questionId===r.questionId);
+    if(matchedHost && (segments.get(r.segmentId)?.index || ctx.segmentIndex)<=(segments.get(matchedHost.segmentId)?.index || ctx.segmentIndex)) throw new Error('回应必须晚于本批次提问。');
+    if (!q || q.status === 'asked' && ((segments.get(r.segmentId)?.index || ctx.segmentIndex) <= (q.askedAfter || 0) || q.askedSegmentId === r.segmentId)) throw new Error('回应关联问题或轮次无效。');
+    return { questionId: r.questionId, ...cite(r, 'guest', true) };
   });
   const hostQuestions = raw.hostQuestions.map(q => {
     if (!text(q.text, 100)) throw new Error('主持人问题无效。');
@@ -112,20 +116,30 @@ export function validateInterview(raw, ctx) {
     return { text: q.text, itemId: chapter(q), questionId: q.questionId || null, ...evidence };
   });
   if (!current) throw new Error('当前片段不存在。');
-  return { analysisVersion: 2, claims, candidates, responses, hostQuestions, actions: [] };
+  const reviews = (raw.reviews || []).map(r => {
+    if (!ctx.questions.some(q=>q.id===r.questionId && ['candidate','displayed'].includes(q.status)) || !['keep','superseded'].includes(r.status) || !text(r.reason,300)) throw new Error('提示有效性核对无效。');
+    return {questionId:r.questionId,status:r.status,reason:r.reason};
+  });
+  if (reviews.length>3 || new Set(reviews.map(r=>r.questionId)).size!==reviews.length) throw new Error('提示核对重复或过多。');
+  const answered = new Set(responses.map(r=>r.questionId));
+  const filtered = candidates.filter(q=>!ctx.questions.some(old=>answered.has(old.id) && (normalizedQuestion(old.text)===normalizedQuestion(q.text) || old.informationGoal && normalizedQuestion(old.informationGoal)===normalizedQuestion(q.informationGoal))));
+  return { analysisVersion: 2, claims, candidates: filtered, responses, hostQuestions, reviews, actions: [] };
 }
 export function applyInterview(s, segment, raw, ctx, source) {
   if (s.paused || s.endedAt || s.revision !== ctx.revision || s.id !== ctx.sessionId || segment.revision !== ctx.segmentRevision) throw new Error('访谈已变化，旧分析已丢弃；请重新分析。');
   const result = validateInterview(raw, ctx);
   s.events.push({ type: 'analysis-v2', at: now(), segmentId: segment.id, source });
-  s.claims = s.claims.filter(c => c.segmentId !== segment.id);
+  s.claims = s.claims.filter(c => !(ctx.batchIds || [segment.id]).includes(c.segmentId));
   s.claims.push(...result.claims.map(c => ({ ...c, id: uid(), role: 'guest', source, createdAt: now() })));
+  const newQuestions=new Map();
   for (const h of result.hostQuestions) {
     const q = s.questions.find(q => q.id === h.questionId);
-    if (q) { q.status = 'asked'; q.askedAfter = ctx.segmentIndex; q.askedSegmentId = segment.id; q.feedbackAt = now(); q.autoAsked = true; }
-    else { const q = addHostQuestion(s, h.text, h.itemId, h.segmentId, h.quote); q.askedAfter = ctx.segmentIndex; }
+    if (q) { q.status = 'asked'; q.askedAfter = ctx.segments.find(x=>x.id===h.segmentId)?.index || ctx.segmentIndex; q.askedSegmentId = h.segmentId; q.feedbackAt = now(); q.autoAsked = true; }
+    else { const q = addHostQuestion(s, h.text, h.itemId, h.segmentId, h.quote); q.askedAfter = ctx.segments.find(x=>x.id===h.segmentId)?.index || ctx.segmentIndex; newQuestions.set(`host:${h.segmentId}`,q); }
   }
-  for (const r of result.responses) { const q = s.questions.find(q => q.id === r.questionId); q.status = 'answered'; q.response = r; }
+  for (const r of result.responses) { const q = s.questions.find(q => q.id === r.questionId) || newQuestions.get(r.questionId); q.status = 'answered'; q.response = r; }
+  for (const r of result.reviews) { const q=s.questions.find(q=>q.id===r.questionId); if (q && ['candidate','displayed'].includes(q.status)) { if(r.status==='superseded')q.status='superseded'; q.reviewReason=r.reason; q.reviewedAt=now(); } }
+  for(const q of availableQuestions(s)) if(Date.now()-Date.parse(q.reviewedAt || q.createdAt)>60000) { q.status='superseded';q.reviewReason='提示超过60秒未重新确认，已收起。'; }
   const retained = availableQuestions(s).find(q => q.id === s.displayedQuestionId);
   for (const q of availableQuestions(s)) if (q !== retained) q.status = 'superseded';
   const fresh = result.candidates.filter(q => !retained || normalizedQuestion(q.text) !== normalizedQuestion(retained.text) && normalizedQuestion(q.informationGoal) !== normalizedQuestion(retained.informationGoal)).slice(0, retained ? 2 : 3);
@@ -134,7 +148,7 @@ export function applyInterview(s, segment, raw, ctx, source) {
   s.displayedQuestionId = selected?.id || null;
   if (selected) selected.status = 'displayed';
   s.newCandidates = !!retained && !!fresh.length;
-  segment.analyzedRevision = segment.revision; s.revision++;
+  for (const seg of s.segments) if ((ctx.batchIds || [segment.id]).includes(seg.id)) seg.analyzedRevision=seg.revision; s.revision++;
   return result;
 }
 export function interviewMarkdown(topic, s) {

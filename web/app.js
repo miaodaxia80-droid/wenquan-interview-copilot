@@ -1,5 +1,6 @@
+import { parseOutline, materialMarkdown } from './productivity.js';
 import { roleContext, applyRoles, summaryContext, validateSummary } from './intelligence.js';
-import { availableQuestions, selectQuestion, questionFeedback, addHostQuestion, setChapter, bindSpeaker, invalidateInterview } from './interview.js';
+import { interviewContext, availableQuestions, selectQuestion, questionFeedback, addHostQuestion, setChapter, bindSpeaker, invalidateInterview } from './interview.js';
 import { hostPrepare, hostLive, hostResults, roleOptions } from './interview-ui.js';
 import { readModelEvents } from './model-stream.js';
 import { last, requestDeadline } from './platform.js';
@@ -26,8 +27,11 @@ let storageLoaded = false, prepareStarting = false, preparationError = '', strea
 const lifetime = new AbortController();
 let mobileHost = false;
 let modelProgress = null;
+let gatewayHealth = null;
+let resumeCaptureSessionId = null;
 const inputDrafts=new Map();
-document.addEventListener('input',event=>{const el=event.target;if(el.id==='transcript')draft=el.value;if(el.id==='host-question'||el.dataset?.summary)inputDrafts.set(state.sessionId+':'+(el.id||el.dataset.summary),el.value);});
+const openPanels=new Map(); let renderedPanelKey=null;
+document.addEventListener('input',event=>{const el=event.target;if(el.id==='transcript')draft=el.value;if(el.id==='host-question'||el.id==='outline-paste'||el.dataset?.summary)inputDrafts.set(state.sessionId+':'+(el.id||el.dataset.summary),el.value);});
 const ACCESS_KEY = 'wenquan.gateway-access.v1';
 function gatewayToken(backend = state.settings.backend) {
   let saved;
@@ -51,7 +55,7 @@ function safeState(value) {
   if (value?.schema !== 1 || !Array.isArray(value.topics) || !value.topics.length || !value.settings || !value.topics.every(t => Array.isArray(t.sessions) && t.sessions.length)) throw new Error('保存的数据结构不兼容；未覆盖原记录。');
   for (const topic of value.topics) for (const session of topic.sessions) {
     for (const item of session.pendingAsr || []) {
-      if (!session.endedAt && !session.segments.some(x => x.asr?.key === item.key)) { const segment = addSegment(session, item.text, 'audio'); segment.asr = { service: 'volcengine', key: item.key, startMs: item.startMs, endMs: item.endMs, speakerId: item.speakerId || null, reviewed: false }; attachSpeechRole(session, segment, item); }
+      if (!session.endedAt && !session.segments.some(x => x.asr?.key === item.key)) { const segment = addSegment(session, item.text, 'audio'); segment.asr = { service: 'volcengine', key: item.key, streamId:item.streamId, receivedAt:item.receivedAt, timingUnavailable:!!item.timingUnavailable, startMs: item.startMs, endMs: item.endMs, speakerId: item.speakerId || null, reviewed: false }; attachSpeechRole(session, segment, item); }
     }
     session.pendingAsr = [];
     if (session.analysisVersion === 2) { session.speakerBindings ||= {}; session.chapterStates ||= {}; session.chapterSummaries ||= {}; session.currentChapterId ||= session.items[0]?.id; }
@@ -105,7 +109,7 @@ async function modelApi(path, data, signal, task) {
 }
 function serviceBar() { return `<div class="servicebar"><span>${state.settings.mode === 'demo' ? '离线脚本演示 · 固定结果' : '云端模型 · 流式分析'}</span><button type="button" data-action="settings">分析设置 ↗</button></div>`; }
 function renderTopics() {
-  return `<div class="lead"><div class="eyebrow">每次交流，都有一个想弄清的问题</div><h1>访谈主题</h1><p class="muted">继续上次没问清的事，或从一个新目标开始。</p></div><section class="card report-overview"><div class="eyebrow">两人剧本 · 6–8 分钟</div><h2>第一个陌生用户之后</h2><p class="fine">小林采访小周。主题、目标与四条主线已准备好，配合剧本即可演示。</p><button class="primary wide space-top" data-action="open-script-preset">打开剧本演示预设 →</button></section>${state.topics.map(t => `<article class="topic ${t.id === state.topicId ? 'selected' : ''}"><div class="between"><h2>${esc(t.title)}</h2><span class="pill">${esc(TEMPLATES[t.template]?.label || '自定义')}</span></div><p class="muted">${t.sessions.length} 次访谈 · ${t.sessions.reduce((n, s) => n + s.segments.length, 0)} 段对话</p><p class="fine">${esc(last(t.sessions).goal)}</p><div class="row topic-actions"><button class="secondary small" data-action="open-topic" data-id="${t.id}">打开记录</button><button class="small" data-action="resume-topic" data-id="${t.id}">新一次访谈</button><button class="small danger" data-action="delete-topic" data-id="${t.id}">删除</button></div>${deleteId === t.id ? `<div class="delete-confirm">确认删除这份本机记录？此操作不能撤销，建议先导出。<div class="row"><button class="small" data-action="cancel-delete">取消</button><button class="small" data-action="download-topic" data-id="${t.id}">先导出</button><button class="small danger" data-action="confirm-delete" data-id="${t.id}">确认删除</button></div></div>` : ''}</article>`).join('')}<section class="card"><h2>创建新主题</h2><div class="template-grid">${Object.entries(TEMPLATES).filter(([key])=>key==='host').map(([key, t]) => `<button data-action="new-topic" data-template="${key}">${esc(t.label)}<br><span class="fine">＋ 新建</span></button>`).join('')}</div></section>`;
+  return `<div class="lead"><div class="eyebrow">每次交流，都有一个想弄清的问题</div><h1>访谈主题</h1><p class="muted">继续上次没问清的事，或从一个新目标开始。</p></div><details class="card"><summary>体验示例 · 两人剧本</summary><div class="eyebrow">两人剧本 · 6–8 分钟</div><h2>第一个陌生用户之后</h2><p class="fine">小林采访小周。主题、目标与四条主线已准备好，配合剧本即可演示。</p><button class="primary wide space-top" data-action="open-script-preset">打开剧本演示预设 →</button></details>${state.topics.map(t => `<article class="topic ${t.id === state.topicId ? 'selected' : ''}"><div class="between"><h2>${esc(t.title)}</h2><span class="pill">${esc(TEMPLATES[t.template]?.label || '自定义')}</span></div><p class="muted">${t.sessions.length} 次访谈 · ${t.sessions.reduce((n, s) => n + s.segments.length, 0)} 段对话</p><p class="fine">${esc(last(t.sessions).goal)}</p><div class="row topic-actions"><button class="secondary small" data-action="open-topic" data-id="${t.id}">打开记录</button><button class="small" data-action="resume-topic" data-id="${t.id}">新一次访谈</button><button class="small danger" data-action="delete-topic" data-id="${t.id}">删除</button></div>${deleteId === t.id ? `<div class="delete-confirm">确认删除这份本机记录？此操作不能撤销，建议先导出。<div class="row"><button class="small" data-action="cancel-delete">取消</button><button class="small" data-action="download-topic" data-id="${t.id}">先导出</button><button class="small danger" data-action="confirm-delete" data-id="${t.id}">确认删除</button></div></div>` : ''}</article>`).join('')}<section class="card"><h2>创建新主题</h2><div class="template-grid">${Object.entries(TEMPLATES).filter(([key])=>key==='host').map(([key, t]) => `<button data-action="new-topic" data-template="${key}">${esc(t.label)}<br><span class="fine">＋ 新建</span></button>`).join('')}</div></section>`;
 }
 function renderPrepare(t, s) {
   if (s.analysisVersion === 2) return hostPrepare(t, s, { progress: modelProgressMarkup(), error: preparationError, starting: prepareStarting, busy, service: serviceBar() });
@@ -138,20 +142,23 @@ function render() {
   if (!storageLoaded) { $('main').innerHTML = '<section class="card"><h1>正在恢复访谈记录</h1><p>请保持问全在前台。恢复完成前不会覆盖已有记录。</p><button data-action="reload">重新载入</button></section>'; return; }
   const { topic, session } = current(state);
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全 v0.4.1 · 留心听，问清楚。</footer>';
-  for(const el of document.querySelectorAll('#host-question,[data-summary]')){const key=state.sessionId+':'+(el.id||el.dataset.summary);if(inputDrafts.has(key))el.value=inputDrafts.get(key);}
+  if(renderedPanelKey)openPanels.set(renderedPanelKey,[...document.querySelectorAll('#main details[open]')].map(el=>el.querySelector('summary')?.textContent));
+  renderedPanelKey=state.sessionId+':'+view;
+  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全 v0.5.1 · 留心听，问清楚。</footer>';
+  for(const el of document.querySelectorAll('#host-question,#outline-paste,[data-summary]')){const key=state.sessionId+':'+(el.id||el.dataset.summary);if(inputDrafts.has(key))el.value=inputDrafts.get(key);}
+  for(const el of document.querySelectorAll('#main details'))if(openPanels.get(renderedPanelKey)?.includes(el.querySelector('summary')?.textContent))el.open=true;
   drawPreview(); updateModelProgress();
 }
 function drawPreview() {
   const { session } = current(state), q = activeQuestion(session);
-  drawHint(localCanvas, q, { paused: session.paused, ended: !!session.endedAt, demo: q?.source === 'demo' || state.settings.mode === 'demo', candidateCount: session.analysisVersion === 2 ? availableQuestions(session).length : 1 });
+  drawHint(localCanvas, q, { paused: session.paused, ended: !!session.endedAt, demo: q?.source === 'demo' || state.settings.mode === 'demo', chapter: session.items.find(item => item.id === q?.itemId)?.label || '' });
   if ($('hud')) { $('hud').width = 600; $('hud').height = 350; $('hud').getContext('2d').drawImage(localCanvas, 0, 0); }
 }
 async function syncGlasses() {
   drawPreview();
   if (!ready || !runtimeActive) { delivery = '手机预览可用；尚未连接显示接口'; return; }
   const { session } = current(state);
-  await presenter.present(localCanvas, session.paused || !!session.endedAt);
+  await presenter.present(localCanvas, session.paused || !!session.endedAt || !activeQuestion(session), {sessionId:session.id,questionId:activeQuestion(session)?.id || null,stableAt:session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
 }
 async function api(path, data, { binary = false, signal, backend = state.settings.backend, token = gatewayToken(backend), onProgress } = {}) {
   backend = normalizeBackend(backend, mobileHost);
@@ -189,38 +196,52 @@ async function resolveRoles(topic, session, signal) {
   return changed;
 }
 let ongoingAnalysis=null;
-function analyzeSegment(segment) {
+function analyzeSegment(segment, batch = [segment]) {
   if(busy)return ongoingAnalysis||Promise.resolve();
-  const task=analyzeSegmentImpl(segment);ongoingAnalysis=task;
+  const task=analyzeSegmentImpl(segment, batch);ongoingAnalysis=task;
   return task.finally(()=>{if(ongoingAnalysis===task)ongoingAnalysis=null;});
 }
-async function analyzeSegmentImpl(segment) {
+async function analyzeSegmentImpl(segment, batch) {
   if (busy) return;
   const { topic, session } = current(state);
   if (session.paused) return;
   if (!session.confirmed || session.endedAt) throw new Error('请先确认访谈主线。');
-  busy = true; const controller = new AbortController(); request = controller; render();
+  session.analysisError=''; busy = true; const controller = new AbortController(); request = controller; render();
   try {
     const source = state.settings.mode;
     let changed=[];
     if (session.analysisVersion === 2 && source !== 'demo') {
-      const health = await api('/api/health', undefined, { signal: controller.signal });
+      const health = gatewayHealth?.backend===state.settings.backend && Date.now()-gatewayHealth.at<60000 ? gatewayHealth.value : await api('/api/health', undefined, { signal: controller.signal });
+      gatewayHealth={backend:state.settings.backend,at:Date.now(),value:health};
+      if (batch.length>1 && !health.features?.batchAnalysis) throw new Error('批次分析需要升级网关至 0.5.0；原话已保留。');
       if (!health.analysisVersions?.includes(2)) throw new Error('当前网关尚未支持主持人访谈，请更新后端；原话已保留。');
       if (health.features?.automaticRoles) {
         try { changed=await resolveRoles(topic,session,controller.signal); session.roleError=''; }
         catch(error) { if(controller.signal.aborted || error.name==='AbortError')throw error; session.roleError='自动角色识别暂不可用，原话已保留，可重试或更正。'; }
       }
     }
-    const targets=session.segments.filter(x=>x.id===segment.id || changed.includes(x.id));
-    for(const target of targets) {
+    const targets=session.segments.filter(x=>batch.some(b=>b.id===x.id) || changed.includes(x.id));
+    // Bound each request by count and source size, preserving conversational order.
+    const groups=[]; let group=[], size=0;
+    for(const target of targets) { if(group.length && (group.length>=16 || size+target.text.length>24000)) {groups.push(group);group=[];size=0;} group.push(target);size+=target.text.length; }
+    if(group.length)groups.push(group);
+    for(const turns of groups) {
       if (controller.signal.aborted || current(state).session.id !== session.id || session.paused || session.endedAt) return;
-      const context={...contextFor(topic,session,target),segmentRevision:target.revision};
+      const target=turns[turns.length-1];
+      const context=session.analysisVersion===2 ? interviewContext(topic,session,target,turns) : {...contextFor(topic,session,target),segmentRevision:target.revision};
+      if(session.analysisVersion===2 && source!=='demo')context.shortHints=true;
       const raw=source==='demo'?demoAnalysis(topic.template,target,context):(await modelApi('/api/analyze',context,controller.signal,'追问')).result;
       if (closed || current(state).session.id !== session.id || controller.signal.aborted) return;
       applyAnalysis(session,target,raw,context,source);
+      // Keep facts, but never push a suggestion for a turn already overtaken by queued speech.
+      if(speechQueue.some(x=>x.sessionId===session.id)) {
+        for(const q of availableQuestions(session))q.status='superseded';
+        session.displayedQuestionId=null;
+      }
+      session.lastAnalysis={stableAt:target.asr?.receivedAt || null,completedAt:Date.now(),batchSize:turns.length};
     }
     await save(); render(); void syncGlasses();
-  } catch (e) { if (e.name !== 'AbortError' && !controller.signal.aborted) notify(e.message || '分析失败，原话已保留，可重试。', 'error'); }
+  } catch (e) { if (e.name !== 'AbortError' && !controller.signal.aborted) {session.analysisError=e.message || '分析失败，原话已保留，可重试。';notify(session.analysisError,'error');await save();} }
   finally { busy = false; if(request===controller)request=null; render(); }
 }
 function reportFingerprint(topic,session) { return JSON.stringify([topic.title,session.goal,session.items,session.segments.map(s=>[s.id,s.revision,s.role])]); }
@@ -252,6 +273,7 @@ function capturePreparation() {
   const items = [...document.querySelectorAll('.item-editor')].map((div) => ({ id: div.dataset.item, label: div.querySelector('[data-field=label]').value.trim(), question: div.querySelector('[data-field=question]').value.trim(), ...(session.analysisVersion === 2 ? { preparedQuestions: div.querySelector('[data-field=preparedQuestions]')?.value.trim() || '' } : {}), priority: session.analysisVersion === 2 ? Number(div.querySelector('[data-field=priority]')?.value || 1) : session.items.find(i => i.id === div.dataset.item)?.priority || 1 }));
   const hostFields = session.analysisVersion === 2 ? Object.fromEntries(['guestBackground','backgroundSource','boundaries'].map(k=>[k, String(form.elements[k]?.value || '').trim()])) : {};
   const changed = Object.entries(hostFields).some(([k,v])=>session[k]!==v) || JSON.stringify(session.items) !== JSON.stringify(items) || session.goal !== goal;
+  if(session.analysisVersion===2)session.plannedMinutes=Math.max(0,Math.min(240,Number(form.elements.plannedMinutes?.value)||0));
   topic.title = String(data.get('title')).trim() || '未命名主题'; session.goal = goal; session.role = role; Object.assign(session, hostFields);
   if (changed && session.segments.length) {
     session.events.push({ type: 'checklist-edit', at: now(), priorClaims: clone(session.claims), priorQuestions: clone(session.questions), priorActions: clone(session.actions) });
@@ -279,26 +301,32 @@ function flushSpeechQueue() {
     if (!session || session.endedAt) continue;
     const segment = addSegment(session, item.text, 'audio');
     session.pendingAsr = (session.pendingAsr || []).filter(x => x.key !== item.key);
-    segment.asr = { service: 'volcengine', key: item.key, startMs: item.startMs, endMs: item.endMs, speakerId: item.speakerId || null, reviewed: false }; attachSpeechRole(session, segment, item);
+    segment.asr = { service: 'volcengine', key: item.key, streamId:item.streamId, receivedAt:item.receivedAt, timingUnavailable:!!item.timingUnavailable, startMs: item.startMs, endMs: item.endMs, speakerId: item.speakerId || null, reviewed: false }; attachSpeechRole(session, segment, item);
     added.push(segment);
   }
   void save(); return added;
 }
 function scheduleSpeech() {
-  clearTimeout(speechTimer);
+  if (speechTimer) return;
   if (!speechQueue.length || streamDraining || closed) return;
-  speechTimer = setTimeout(() => void pumpSpeech(), 500);
+  speechTimer = setTimeout(() => { speechTimer=null; void pumpSpeech(); }, 500);
 }
 async function pumpSpeech() {
   if (speechPump || busy || streamDraining || closed) { scheduleSpeech(); return; }
   speechPump = (async () => {
     while (speechQueue.length && !streamDraining && !closed && !busy) {
-      const item = speechQueue.shift(), { session } = current(state);
-      if (session.id !== item.sessionId || session.endedAt) continue;
-      const segment = addSegment(session, item.text, 'audio');
-      session.pendingAsr = (session.pendingAsr || []).filter(x => x.key !== item.key);
-      segment.asr = { service: 'volcengine', key: item.key, startMs: item.startMs, endMs: item.endMs, speakerId: item.speakerId || null, reviewed: false }; attachSpeechRole(session, segment, item);
-      await save(); await analyzeSegment(segment);
+      const { session } = current(state), batch=[]; let size=0;
+      do {
+        const item=speechQueue[0];
+        if(batch.length && size+item.text.length>24000)break;
+        speechQueue.shift();
+        if(session.id!==item.sessionId || session.endedAt)continue;
+        const segment=addSegment(session,item.text,'audio');
+        session.pendingAsr=(session.pendingAsr||[]).filter(x=>x.key!==item.key);
+        segment.asr={service:'volcengine',key:item.key,streamId:item.streamId,startMs:item.startMs,endMs:item.endMs,timingUnavailable:!!item.timingUnavailable,receivedAt:item.receivedAt,speakerId:item.speakerId??null,reviewed:false};
+        attachSpeechRole(session,segment,item); batch.push(segment); size+=item.text.length;
+      } while(speechQueue.length && batch.length<(session.analysisVersion===2?16:1));
+      await save(); if(batch.length)await analyzeSegment(batch[batch.length-1],batch);
     }
   })();
   try { await speechPump; } finally { speechPump = null; scheduleSpeech(); updateStreamingPreview(); }
@@ -321,7 +349,7 @@ async function beginRecording(blob = null) {
     onChunk: ms => { if (valid()) { capturedMs += ms || 0; updateStreamingPreview(); } },
     onFinal: item => {
       if (!valid()) return;
-      const queued = { ...item, speakerKey: item.speakerId == null ? null : `${streamId}:${item.speakerId}`, key: `${streamId}:${item.key}`, sessionId };
+      const queued = { ...item, streamId, receivedAt:Date.now(), speakerKey: item.speakerId == null ? null : `${streamId}:${item.speakerId}`, key: `${streamId}:${item.key}`, sessionId };
       if (item.timingUnavailable) streamError = '部分转写未提供分句时间，已按稳定结果保存，请核对。';
       speechQueue.push(queued); session.pendingAsr ||= []; session.pendingAsr.push(queued); void save();
       if (speechQueue.length > 150) { streamError = '分析速度落后，录音已停止；已识别文字将保留。'; void stopRecording(true); }
@@ -350,6 +378,7 @@ async function beginRecording(blob = null) {
     }
     callbacks.onStage('正在检测云端转写服务…');
     const health = await api('/api/health', undefined, { signal: startupController.signal });
+    if(session.analysisVersion===2 && !health.features?.batchAnalysis)throw new Error('当前网关尚未升级到0.5.0，未开始录音。请先更新网关再使用本版本。');
     if (!health.asr?.streaming) throw new Error('后端尚未配置火山流式语音，请先检测服务连接。');
     if (!valid()) return;
     const opened = await (blob ? startFileReplay(blob, state.settings.backend, callbacks) : startNativeRecording(bridge.gm, state.settings.backend, callbacks));
@@ -363,7 +392,7 @@ async function stopRecording(discard = false) {
   if (streamDraining) return stopPromise;
   if (!recording && streamStatus === 'idle' && !speechQueue.length && !speechPump) return;
   let resolveStop; stopPromise = new Promise(resolve => { resolveStop = resolve; });
-  streamDraining = true; clearTimeout(speechTimer);
+  streamDraining = true; clearTimeout(speechTimer); speechTimer=null;
   if (streamStatus === 'starting') { startupController?.abort(new Error('录音启动已取消，请保持问全前台后重新开始。')); streamNotice = '录音启动已取消，可返回前台后重新开始。'; }
   const rec = recording; let added = []; streamStatus = rec ? 'stopping' : 'idle'; render();
   try {
@@ -382,11 +411,11 @@ async function stopRecording(discard = false) {
     for (const segment of pending) { if (closed || session.endedAt || session.paused || current(state).session.id !== session.id) break; await analyzeSegment(segment); }
   }
 }
-function download(topic) {
-  const blob = new Blob([exportMarkdown(topic)], { type: 'text/markdown;charset=utf-8' });
+function download(topic, compact = false) {
+  const blob = new Blob([compact ? materialMarkdown(topic,current(state).session) : exportMarkdown(topic)], { type: 'text/markdown;charset=utf-8' });
   const url = URL.createObjectURL(blob), a = document.createElement('a');
-  a.href = url; a.download = `${topic.title.replace(/[\\/:*?"<>|]/g, '_')}_访谈记录.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 20000);
-  notify('已生成 Markdown 访谈记录。');
+  a.href = url; a.download = `${topic.title.replace(/[\\/:*?"<>|]/g, '_')}_${compact ? '素材索引' : '访谈记录'}.md`; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 20000);
+  notify(compact?'已生成素材索引。':'已生成完整访谈记录。');
 }
 
 document.addEventListener('click', async event => {
@@ -416,6 +445,7 @@ document.addEventListener('click', async event => {
       state.topicId = state.topics[0].id; state.sessionId = last(state.topics[0].sessions).id; deleteId = null; view = 'topics'; draft = ''; await save(); await syncGlasses(); render(); return;
     }
     if (['open-topic', 'open-session', 'resume-topic', 'new-topic', 'open-script-preset'].includes(action)) {
+      resumeCaptureSessionId = null;
       cancelRequest(); await stopRecording(true); capturedMs = 0; streamError = ''; draft = ''; draftSource = 'manual'; audioBlob = null; audioName = ''; audioNotice = '';
       let next = state.topics.find(t => t.id === (button.dataset.topic || id));
       if (action === 'new-topic') { next = newTopic(button.dataset.template); state.topics.push(next); }
@@ -436,6 +466,15 @@ document.addEventListener('click', async event => {
       if (session.analysisVersion === 2 && !session.items.some(i=>i.id===session.currentChapterId)) session.currentChapterId=session.items[0]?.id;
       await save(); render(); await syncGlasses(); return;
     }
+    if (action === 'import-outline') {
+      const rows=parseOutline($('outline-paste')?.value);
+      if(session.items.length+rows.length>30)throw new Error('追加后超过30条主线，请先移除不需要的主线。');
+      capturePreparation();
+      session.items.push(...rows.map(row=>({...row,id:uid()}))); session.confirmed=false;session.revision++;
+      inputDrafts.delete(session.id+':outline-paste');
+      await save();render();notify('提纲已追加，请确认主线顺序和必聊项。');return;
+    }
+    if (action === 'download-materials') { download(topic,true);return; }
     if (action === 'generate-list') {
       capturePreparation();
       if (!session.goal.trim()) throw new Error('请先写下本次目标。');
@@ -473,7 +512,14 @@ document.addEventListener('click', async event => {
     }
     if (action === 'retry') return await analyzeSegment(session.segments.find(seg => seg.id === id));
     if (['asked', 'skipped', 'deferred'].includes(action)) { cancelRequest(); if (session.analysisVersion === 2) questionFeedback(session, id || activeQuestion(session)?.id, action); else feedback(session, action); await save(); render(); await syncGlasses(); notify(action === 'asked' ? '已标记为提出，缺口仍等待回答。' : action === 'skipped' ? '已跳过这条提示。' : '已放入稍后处理，可在记录中查看。'); return; }
-    if (action === 'pause') { cancelRequest(); await stopRecording(true); session.paused = !session.paused; session.revision++; await save(); render(); await syncGlasses(); if (!session.paused) await beginRecording(); return; }
+    if (action === 'pause') {
+      if (!session.paused) resumeCaptureSessionId = (recording || streamStatus === 'starting') ? session.id : null;
+      const resumeCapture = session.paused && resumeCaptureSessionId === session.id;
+      cancelRequest(); await stopRecording(true); session.paused = !session.paused; session.revision++;
+      await save(); render(); await syncGlasses();
+      if (!session.paused) { resumeCaptureSessionId = null; if (resumeCapture) await beginRecording(); }
+      return;
+    }
     if (action === 'resend') return await syncGlasses();
     if (action === 'end') { if(session.ending)return;session.ending=true;render();try{cancelRequest();if(ongoingAnalysis)await ongoingAnalysis;await stopRecording(false);session.endedAt=now();session.revision++;delete session.ending;await save();view='results';render();void syncGlasses();if(session.analysisVersion===2)await generateReport();}finally{delete session.ending;render();}return; }
     if (action === 'edit-segment') { if (recording || streamStatus === 'starting') { cancelRequest(); await stopRecording(); } editing = id; render(); return; }
@@ -513,6 +559,7 @@ async function confirmAndRecord({ record = true } = {}) {
     capturePreparation(); const { session } = current(state);
     if (!session.goal || !session.role || !session.items.length || session.items.some(i => !i.label || !i.question)) throw new Error('请填好目标、角色，并至少确认一条完整事项；新增的空白事项请填写或移除。');
     if (session.endedAt) throw new Error('这次访谈已结束，请新建一次访谈。');
+    if(!session.segments.length)session.startedAt=now();
     session.confirmed = true; session.paused = false;
     // 先显示启动状态；存储和眼镜传输不再让准备页看起来毫无反应。
     view = 'live'; streamNotice = '清单已确认，正在启动录音…'; streamError = ''; render(); window.scrollTo(0, 0);
@@ -599,7 +646,14 @@ async function initialize() {
     try { await Promise.race([bridge.gm.ready(), new Promise((_, reject) => { bootstrapTimer = setTimeout(() => reject(new Error('Bridge timeout')), 7000); })]); }
     finally { clearTimeout(bootstrapTimer); }
     ready = true;
-    presenter = new GlassPresenter(bridge.gm, message => { delivery = message; if ($('delivery')) $('delivery').textContent = message; });
+    presenter = new GlassPresenter(bridge.gm, message => { delivery = message; if ($('delivery')) $('delivery').textContent = message; }, receipt => {
+      const meta=receipt.metadata, session=state.topics.flatMap(t=>t.sessions).find(s=>s.id===meta?.sessionId);
+      if(!session || receipt.clear || !meta.questionId || !meta.stableAt)return;
+      session.deliveryMetrics ||= [];
+      if(session.deliveryMetrics.some(x=>x.questionId===meta.questionId))return;
+      session.deliveryMetrics.push({questionId:meta.questionId,stableAt:meta.stableAt,analysisAt:meta.analysisAt,confirmedAt:receipt.confirmedAt,stableToDisplayMs:receipt.confirmedAt-meta.stableAt});
+      session.deliveryMetrics=session.deliveryMetrics.slice(-200);void save();
+    });
     try { const saved = (await runInForeground(bridge.gm, () => bridge.gm.storage.get(KEY), { signal: lifetime.signal })).value; if (saved) state = safeState(saved); storageLoaded = true; }
     catch (e) { notify(e.message || '未能恢复本机记录，请检查存储权限。', 'error'); render(); return; }
     try { subscription = (await bridge.gm.device.subscribeEvents(['connection'])).subscriptionId; } catch { /* 可选权限：不阻塞文本访谈。 */ }

@@ -2,6 +2,14 @@
 
 现有部署：SSH 别名 `aliyun`，目录 `/opt/wenquan`，Compose 项目 `wenquan`，容器 `wenquan-gateway`。公网地址 `https://cx.kevinxu.cn/wenquan`。现有 Caddy 代理到 `127.0.0.1:8788`，容器内监听 `0.0.0.0:8787`。运行时不依赖 Mac。
 
+## 0.5.0 已部署更新（2026-10-17）
+
+当前运行 wenquan-gateway:0.5.0，健康状态healthy，新增batchAnalysis能力。镜像 sha256:f73d618d9711759b02c0df47a217ad3efd842c113ba60fa457fe531e87d6634d。仍仅映射127.0.0.1:8788，Caddy未改。
+
+备份 /opt/wenquan/backups/pre-0.5.0-20261017-1730，包含source.tar.gz、env.private及env.sha256，目录权限700。配置校验保持一致；旧镜像另存 wenquan-gateway:rollback-pre-0.5.0。回滚前保存届时新改动，再恢复该source.tar.gz，执行 docker compose up -d --no-build，可回到0.4.0；不需要恢复密钥或修改Caddy。
+
+真实公网模型、WSS双合成声音ASR、角色判断、匿名401及移动来源CORS均有证据，见问全/evidence/对应0.5.0记录。Studio实际文本联调确认自动角色、候选、显示确认及结束归纳；真机安装由用户扫码执行。
+
 ## 0.4.0 已部署更新（2026-10-17）
 
 实际运行镜像为 `wenquan-gateway:0.4.0`，健康响应声明版本 0.4.0、analysisVersions [1,2] 及 automaticRoles/interviewSummary 功能。新增 `/api/identify-speakers` 和 `/api/summarize`，旧 JSON 与 NDJSON 接口保留。新增运行文件 `web/intelligence.js`，Dockerfile 已包含。

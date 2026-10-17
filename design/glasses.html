@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>问全 · 眼镜端设计预览</title>
+<style>
+:root { color-scheme:dark; font-family:"PingFang SC",sans-serif; background:#101517; color:#eef3f1 }
+*{box-sizing:border-box} body{margin:0} main{max-width:1320px;margin:auto;padding:48px 44px 60px}
+header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #303b3c;padding-bottom:22px}
+.brand{font-weight:600;font-size:22px;letter-spacing:3px} .edition{font-size:12px;color:#9aa8a6;letter-spacing:2px}
+.intro{display:flex;align-items:end;justify-content:space-between;gap:32px;margin:42px 0 32px} h1{font-size:36px;font-weight:500;letter-spacing:-1px;margin:0 0 12px} p{font-size:14px;color:#a5b4b0;line-height:1.8;margin:0}
+button{font:inherit;font-size:12px;background:transparent;color:#d4ded9;border:1px solid #4a5854;border-radius:24px;padding:10px 16px;white-space:nowrap;cursor:pointer}button:focus-visible{outline:2px solid #e5f9e9;outline-offset:4px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px} figure{margin:0} .surface{background:#000;border:1px solid #303b36;border-radius:16px;overflow:hidden;line-height:0}
+canvas{display:block;width:100%;height:auto;filter:url(#phosphor)}body.white canvas{filter:none}
+figcaption{display:flex;justify-content:space-between;align-items:center;padding:13px 2px;color:#d0dcd4;font-size:13px}figcaption span{color:#80918b;font-size:12px}
+.note{border-top:1px solid #303b3c;margin-top:24px;padding-top:22px;font-size:12px;color:#80918b}
+@media(max-width:760px){main{padding:28px 20px}.intro{display:block}button{margin-top:20px}.grid{grid-template-columns:1fr}h1{font-size:29px}.edition{letter-spacing:0}}
+</style>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><filter id="phosphor" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values=".52 0 0 0 0  0 .94 0 0 0  0 0 .35 0 0  0 0 0 1 0"/></filter></svg>
+<main>
+<header><div class="brand">问全</div><div class="edition">GLASSES INTERFACE · 0.5.1</div></header>
+<div class="intro"><div><h1>一句追问，留住对话的深处。</h1><p>更大的问句，更轻的上下文。只在值得追问时出现。</p></div><button id="mode">切换为原始灰度</button></div>
+<div class="grid">
+<figure><div class="surface"><canvas id="short" aria-label="深入追问示例"></canvas></div><figcaption>深入追问<span>根据嘉宾原话</span></figcaption></figure>
+<figure><div class="surface"><canvas id="long" aria-label="长问句示例"></canvas></div><figcaption>补充细节<span>长问句 · 均衡换行</span></figcaption></figure>
+<figure><div class="surface"><canvas id="mixed" aria-label="自然转场示例"></canvas></div><figcaption>自然转场<span>中英文混排</span></figcaption></figure>
+<figure><div class="surface"><canvas id="quiet" aria-label="暂停时黑屏"></canvas></div><figcaption>安静聆听<span>暂停、结束、暂无建议时黑屏</span></figcaption></figure>
+</div>
+<p class="note">使用产品实际绘制代码 · 原生画布 600 × 350 · 16 级灰度。绿色仅用于模拟发光效果，真实光学观感以设备为准。</p>
+</main>
+<script type="module">
+import { drawHint, hintLines } from '../web/glass-ui.js';
+const examples = [
+ ['short',{hint:'社团当时遇到什么麻烦？',type:'deepen'},{chapter:'最初的起点'}],
+ ['long',{hint:'第一次发现用户的真实需求和最初设想不同时，你做了什么？',type:'supplement'},{chapter:'产品与用户'}],
+ ['mixed',{hint:'从 Demo 到落地，最难的一步是什么？',type:'transition'},{chapter:'从想法到实践'}],
+ ['quiet',{hint:'社团当时遇到什么麻烦？',type:'deepen'},{paused:true}]
+];
+for(const [id,q,options] of examples)drawHint(document.getElementById(id),q,options);
+document.getElementById('mode').onclick=()=>{document.body.classList.toggle('white');document.getElementById('mode').textContent=document.body.classList.contains('white')?'切换为模拟绿色':'切换为原始灰度'};
+window.designReady=true;
+</script>
+</html>

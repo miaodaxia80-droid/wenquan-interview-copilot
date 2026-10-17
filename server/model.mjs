@@ -27,6 +27,7 @@ export function validateContext(value) {
   if (!value.segments.some(s => s.id === value.segmentId && s.sessionId === value.sessionId)) throw new Error('当前片段不存在。');
   if (value.analysisVersion != null && ![1, 2].includes(value.analysisVersion)) throw new Error('不支持的分析协议。');
   if (value.analysisVersion === 2) {
+    if (value.batchIds != null && (!Array.isArray(value.batchIds) || !value.batchIds.length || value.batchIds.length>16 || new Set(value.batchIds).size!==value.batchIds.length || !value.batchIds.includes(value.segmentId) || value.batchIds.some(id=>!value.segments.some(s=>s.id===id && s.sessionId===value.sessionId && Number.isInteger(s.index) && s.index>0)))) throw new Error('分析批次无效。');
     if (!value.items.some(i => i.id === value.currentChapterId) || value.segments.some(s => !['host', 'guest', 'unknown'].includes(s.role)) || !Number.isInteger(value.segmentIndex) || value.segmentIndex < 1 || typeof value.topic !== 'string' || value.topic.length > 100 || [value.guestBackground, value.backgroundSource, value.boundaries].some(v => typeof v !== 'string' || v.length > 3000) || value.items.some(i => i.preparedQuestions != null && (typeof i.preparedQuestions !== 'string' || i.preparedQuestions.length > 1500))) throw new Error('主持人上下文字段无效。');
   }
   return value;

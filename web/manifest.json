@@ -1,22 +1,58 @@
 {
   "id": "com.wenquan.interview-copilot",
   "name": "问全 · 主持人实时访谈助手",
-  "version": "0.4.1",
+  "version": "0.5.1",
   "entry": "index.html",
   "bridgeVersion": "2.0",
   "schemaVersion": 2,
   "permissionPolicyVersion": 1,
   "permissions": [
-    { "name": "display", "required": false, "reason": "在眼镜上显示或清空一条追问" },
-    { "name": "storage", "required": true, "reason": "保存本机访谈和原话依据" },
-    { "name": "device.events", "required": false, "scope": { "types": ["connection"] } },
-    { "name": "device.info", "required": false },
-    { "name": "audio.capture", "required": false, "reason": "访谈内持续采集并发送云端识别，用户可暂停或停止" },
-    { "name": "files.user-selected", "required": false, "reason": "仅导入用户选定的音频文件用于转写" },
-    { "name": "network", "required": false, "reason": "连接用户配置的问全后端完成分析和转写" }
+    {
+      "name": "display",
+      "required": false,
+      "reason": "在眼镜上显示或清空一条追问"
+    },
+    {
+      "name": "storage",
+      "required": true,
+      "reason": "保存本机访谈和原话依据"
+    },
+    {
+      "name": "device.events",
+      "required": false,
+      "scope": {
+        "types": [
+          "connection"
+        ]
+      }
+    },
+    {
+      "name": "device.info",
+      "required": false
+    },
+    {
+      "name": "audio.capture",
+      "required": false,
+      "reason": "访谈内持续采集并发送云端识别，用户可暂停或停止"
+    },
+    {
+      "name": "files.user-selected",
+      "required": false,
+      "reason": "仅导入用户选定的音频文件用于转写"
+    },
+    {
+      "name": "network",
+      "required": false,
+      "reason": "连接用户配置的问全后端完成分析和转写"
+    }
   ],
   "deviceRequirements": {
     "preferredPluginId": "com.gm.example.web-bridge",
-    "protocols": [{ "id": "gm.scene", "minVersion": "1.0" }]
+    "protocols": [
+      {
+        "id": "gm.scene",
+        "minVersion": "1.0"
+      }
+    ]
   }
 }

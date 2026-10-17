@@ -165,3 +165,28 @@ test('剧本预设入口填好主题与四条主线，不开录音、不灌入�
  await click();assert.equal(vm.runInContext('state.topics.length',h.context),3);
  assert.equal(vm.runInContext('state.topics[1].sessions[0].endedAt!==null',h.context),true);
 });
+
+test('语音积压按稳定批次分析且逐段保留，不为每个短句重复调用模型',async()=>{
+ const h=await loadApp();const interview=await import('../web/interview.js'),intelligence=await import('../web/intelligence.js');Object.assign(h.context,interview,intelligence);
+ let calls=0;
+ h.context.fetch=async(url,options)=>{
+  if(url.endsWith('/api/health'))return Response.json({analysisVersions:[1,2],features:{batchAnalysis:true,automaticRoles:true}});
+  const ctx=JSON.parse(options.body);calls++;assert.equal(ctx.batchIds.length,3);
+  return Response.json({result:{analysisVersion:2,candidates:[],hostQuestions:[],responses:[],claims:ctx.segments.filter(x=>ctx.batchIds.includes(x.id)).map(x=>({itemId:'origin',text:x.text,quote:x.text,segmentId:x.id,kind:'current',status:'stated'}))}});
+ };
+ await vm.runInContext(`state=newState('host');storageLoaded=true;ready=false;state.settings.mode='model';state.settings.backend='https://cloud.test/wenquan';render=()=>{};syncGlasses=async()=>{};localStorage.setItem=()=>{};const queuedSession=current(state).session;queuedSession.confirmed=true;queuedSession.speakerBindings={'stream:1':'guest'};speechQueue=[1,2,3].map(n=>({text:'稳定分句'+n,key:'stream:'+n,streamId:'stream',speakerKey:'stream:1',sessionId:queuedSession.id,startMs:n*1000,endMs:n*1000+500,receivedAt:Date.now()}));queuedSession.pendingAsr=[...speechQueue];pumpSpeech();`,h.context);
+ assert.equal(calls,1);assert.equal(vm.runInContext('queuedSession.segments.length',h.context),3);assert.equal(vm.runInContext('queuedSession.claims.length',h.context),3);assert.equal(vm.runInContext('queuedSession.pendingAsr.length',h.context),0);assert.equal(vm.runInContext('queuedSession.segments.every(s=>s.analyzedRevision===0)',h.context),true);
+});
+
+test('旧分析期间收到新发言时保存事实但收起过时提示',async()=>{
+ const h=await loadApp();Object.assign(h.context,await import('../web/interview.js'),await import('../web/intelligence.js'));
+ let release;h.context.fixtureBarrier=new Promise(r=>release=r);
+ h.context.fetch=async(url,options)=>{
+  if(url.endsWith('/api/health'))return Response.json({analysisVersions:[1,2],features:{batchAnalysis:true}});
+  const ctx=JSON.parse(options.body),seg=ctx.segments.find(x=>x.id===ctx.segmentId);await h.context.fixtureBarrier;
+  return Response.json({result:{analysisVersion:2,claims:[{itemId:'origin',text:seg.text,quote:seg.text,segmentId:seg.id,kind:'current',status:'stated'}],candidates:[{itemId:'origin',text:'为什么开始？',hint:'为什么开始？',informationGoal:'起因',type:'deepen',basisType:'transcript',quote:seg.text,segmentId:seg.id,gap:'缺原因'}],hostQuestions:[],responses:[]}});
+ };
+ const work=vm.runInContext(`state=newState('host');storageLoaded=true;ready=false;render=()=>{};syncGlasses=async()=>{};localStorage.setItem=()=>{};state.settings.mode='model';state.settings.backend='https://cloud.test/wenquan';const s2=current(state).session;s2.confirmed=true;const sg2=addSegment(s2,'开始做工具');sg2.role='guest';analyzeSegment(sg2);`,h.context);
+ await new Promise(r=>setImmediate(r));vm.runInContext(`speechQueue.push({sessionId:s2.id,text:'新的话题'});`,h.context);release();await work;
+ assert.equal(vm.runInContext('s2.claims.length',h.context),1);assert.equal(vm.runInContext('activeQuestion(s2)',h.context),null);
+});

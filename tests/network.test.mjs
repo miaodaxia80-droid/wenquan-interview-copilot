@@ -52,7 +52,7 @@ test('公网 HTTP 必须有访问码；预检可通过但不能越过鉴权，�
   const preflight = await fetch(base + '/api/health', { method: 'OPTIONS', headers: { Origin: 'https://mobile.webview.test', 'Access-Control-Request-Headers': 'authorization' } });
   assert.equal(preflight.status, 204); assert.match(preflight.headers.get('Access-Control-Allow-Headers'), /Authorization/);
   const allowed = await fetch(base + '/api/health', { headers: { Origin: 'https://mobile.webview.test', Authorization: `Bearer ${token}` } });
-  assert.equal(allowed.status, 200); assert.equal((await allowed.json()).version, '0.4.0');
+  assert.equal(allowed.status, 200); assert.equal((await allowed.json()).version, '0.5.0');
   assert.equal((await fetch(base + '/config.js')).status, 404);
 });
 test('ASR 在首包鉴权后才打开上游，访问码不在 WebSocket URL 中', async t => {

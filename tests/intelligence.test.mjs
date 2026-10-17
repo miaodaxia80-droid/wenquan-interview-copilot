@@ -36,6 +36,6 @@ test('长访谈逐块整理后合并，最终仍引用完整原话并报告覆�
 test('网关新接口真实路由及NDJSON结果校验，健康声明新功能',async t=>{
  const r=report();const server=createService({MODEL_API_KEY:'test',MODEL_NAME:'test'},async(_url,o)=>{const input=JSON.parse(JSON.parse(o.body).messages[1].content);return Response.json({choices:[{message:{content:JSON.stringify(input.bindings?{assignments:[assignment('h','host','我是主持人')]}:r)}}]});});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>server.close());const base='http://127.0.0.1:'+server.address().port;
- assert.deepEqual((await(await fetch(base+'/api/health')).json()).features,{automaticRoles:true,interviewSummary:true});
+ assert.deepEqual((await(await fetch(base+'/api/health')).json()).features,{batchAnalysis:true,automaticRoles:true,interviewSummary:true});
  for(const [path,input] of [['identify-speakers',roleContext(session())],['summarize',ctx]]){const res=await fetch(base+'/api/'+path,{method:'POST',headers:{'Content-Type':'application/json',Accept:'application/x-ndjson'},body:JSON.stringify(input)});const events=(await res.text()).trim().split('\n').map(JSON.parse);assert.equal(events.at(-1).type,'result');assert.ok(events.at(-1).result);}
 });

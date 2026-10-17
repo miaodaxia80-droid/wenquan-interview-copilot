@@ -1,30 +1,7 @@
+export { drawHint } from './glass-ui.js';
 import { createGMPlugin, opusRecordingToOgg } from './vendor/gm-plugin-web-sdk.esm.js';
 export { opusRecordingToOgg };
 
-function wrap(ctx, text, width) {
-  const lines = []; let line = '';
-  for (const char of text) {
-    if (char === '\n' || ctx.measureText(line + char).width > width) { lines.push(line); line = char === '\n' ? '' : char; }
-    else line += char;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-export function drawHint(canvas, question, { paused = false, ended = false, demo = false, candidateCount = 1 } = {}) {
-  canvas.width = 600; canvas.height = 350;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, 600, 350);
-  if (paused || ended) return;
-  ctx.fillStyle = '#fff';
-  ctx.font = '500 23px "PingFang SC", sans-serif';
-  ctx.fillText(`问全  /  ${question ? `候选问题${candidateCount > 1 ? ` · 另有 ${candidateCount - 1} 题可选` : ''}` : '等待对话'}`, 34, 52);
-  ctx.fillStyle = '#999'; ctx.fillRect(34, 74, 532, 1);
-  ctx.fillStyle = '#fff'; ctx.font = '500 34px "PingFang SC", sans-serif';
-  const text = question?.text || '认真听，下一句慢慢问。';
-  wrap(ctx, text, 518).slice(0, 4).forEach((line, i) => ctx.fillText(line, 34, 132 + i * 46));
-  ctx.fillStyle = '#aaa'; ctx.font = '20px "PingFang SC", sans-serif';
-  ctx.fillText(demo ? '离线脚本演示' : '由你决定是否追问', 34, 324);
-}
 export function gray4(rgba, width, height) {
   const stride = Math.ceil(width / 2), out = new Uint8Array(stride * height);
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
@@ -40,12 +17,12 @@ const base64 = data => {
 };
 
 export class GlassPresenter {
-  constructor(gm, notify) { this.gm = gm; this.notify = notify; this.pending = null; this.running = null; this.closed = false; }
+  constructor(gm, notify, onPresented = () => {}) { this.onPresented=onPresented; this.gm = gm; this.notify = notify; this.pending = null; this.running = null; this.closed = false; }
   close() { this.closed = true; this.pending = null; }
-  present(canvas, clear = false) {
+  present(canvas, clear = false, metadata = null) {
     if (this.closed) return Promise.resolve();
     // 捕获像素快照；最后一次意图优先，包括暂停时的清空。
-    this.pending = clear ? { clear: true } : { pixels: canvas.getContext('2d').getImageData(0, 0, 600, 350).data };
+    this.pending = clear ? { clear: true, metadata } : { metadata, pixels: canvas.getContext('2d').getImageData(0, 0, 600, 350).data };
     if (!this.running) {
       this.running = this.drain().finally(() => { this.running = null; });
     }
@@ -68,6 +45,7 @@ export class GlassPresenter {
             if (result?.presented !== true) throw new Error('设备没有确认显示');
           }
         }
+        if (!this.closed) this.onPresented({metadata:next.metadata,clear:!!next.clear,confirmedAt:Date.now()});
         if (!this.closed) this.notify(next.clear ? '眼镜提示已清空' : '眼镜已确认显示', 'success');
       } catch (e) {
         if (!this.closed) this.notify(`眼镜未送达：${e.message || e.code || e}。手机仍可使用。`, 'error');

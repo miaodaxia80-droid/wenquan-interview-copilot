@@ -36,3 +36,10 @@ test('没有显示确认不能报告成功，运行代际关闭后不再发旧�
   const running = closing.present(fakeCanvas(255)); closing.close(); release(); await running;
   await closing.present(fakeCanvas(255)); assert.deepEqual(calls, ['tile']);
 });
+
+test('显示计时只在两块图像均确认后记录，失败不记录送达',async()=>{
+ const receipts=[];let count=0;
+ const p=new GlassPresenter({display:{async updateImage(){count++;return {presented:count!==2};}}},()=>{},r=>receipts.push(r));
+ await p.present(fakeCanvas(255),false,{questionId:'q1',stableAt:1});assert.equal(receipts.length,0);
+ await p.present(fakeCanvas(255),false,{questionId:'q2',stableAt:2});assert.equal(receipts.length,1);assert.equal(receipts[0].metadata.questionId,'q2');assert.ok(receipts[0].confirmedAt>2);
+});
