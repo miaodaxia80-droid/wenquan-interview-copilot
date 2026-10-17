@@ -1,7 +1,7 @@
 {
   "id": "com.wenquan.interview-copilot",
   "name": "问全·实时访谈助手",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "entry": "index.html",
   "bridgeVersion": "2.0",
   "schemaVersion": 2,

@@ -150,13 +150,13 @@ test('准备页打开分析设置只打开弹窗，不隐式提交录音表单',
 });
 
 
-test('五种模板入口建立独立 v2 访谈，保留原记录，不开录音也不灌入答案',async()=>{
+test('六种模板入口建立独立 v2 访谈，保留原记录，不开录音也不灌入答案',async()=>{
  const h=await loadApp();h.context.hostPrepare=hostPrepare;h.context.availableQuestions=availableQuestions;
  vm.runInContext('presenter={present:async()=>{}};',h.context);
  const html=vm.runInContext('renderTopics()',h.context);
- assert.equal((html.match(/data-action="new-topic"/g)||[]).length,5);
+ assert.equal((html.match(/data-action="new-topic"/g)||[]).length,6);
  assert.doesNotMatch(html,/体验示例|open-script-preset|小林|小周/);
- for(const template of ['host','user_research','requirements','retrospective','expert']){
+ for(const template of ['aidol','host','user_research','requirements','retrospective','expert']){
   await h.handlers.get('document:click')({target:{closest:()=>({dataset:{action:'new-topic',template}})}});
   assert.equal(vm.runInContext('current(state).session.analysisVersion',h.context),2);
   assert.ok(vm.runInContext('current(state).session.items.length',h.context)>=4);
@@ -164,7 +164,7 @@ test('五种模板入口建立独立 v2 访谈，保留原记录，不开录音�
   assert.equal(vm.runInContext('current(state).session.confirmed',h.context),false);
   assert.equal(vm.runInContext('view',h.context),'prepare');
  }
- assert.equal(h.opened(),0);assert.equal(vm.runInContext('state.topics.length',h.context),6);
+ assert.equal(h.opened(),0);assert.equal(vm.runInContext('state.topics.length',h.context),7);
  assert.equal(vm.runInContext('state.topics[0].template',h.context),'fde');
 });
 

@@ -4,11 +4,11 @@ import { TEMPLATES, newTopic, newSession, addSegment, contextFor, applyAnalysis 
 import { validateContext } from '../server/model.mjs';
 import { hostPrepare } from '../web/interview-ui.js';
 const templates=Object.entries(TEMPLATES).filter(([,t])=>t.analysisVersion===2);
-test('五个实用模板自带目标、时长、主线和预设问题，准备页可编辑',()=>{
- assert.equal(templates.length,5);
+test('六个实用模板自带目标、时长、主线和预设问题，准备页可编辑',()=>{
+ assert.equal(templates.length,6);
  for(const [key,t] of templates){
   const topic=newTopic(key),s=topic.sessions[0];
-  assert.equal(s.analysisVersion,2);assert.equal(s.role,'guest');assert.ok(s.plannedMinutes>=20);
+  assert.equal(s.analysisVersion,2);assert.equal(s.role,'guest');assert.ok(key==='aidol'?s.plannedMinutes===7:s.plannedMinutes>=20);
   assert.ok(s.goal.length>10);assert.equal(s.currentChapterId,s.items[0].id);
   assert.equal(new Set(s.items.map(i=>i.id)).size,s.items.length);
   assert.ok(s.items.every(i=>i.question&&i.preparedQuestions&&i.priority>=1&&i.priority<=3));
