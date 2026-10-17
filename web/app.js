@@ -1,6 +1,6 @@
 import { parseOutline, materialMarkdown } from './productivity.js';
 import { roleContext, applyRoles, summaryContext, validateSummary } from './intelligence.js';
-import { interviewContext, availableQuestions, selectQuestion, questionFeedback, addHostQuestion, setChapter, bindSpeaker, invalidateInterview } from './interview.js';
+import { ensureInterviewSuggestion, interviewDisplay, interviewContext, availableQuestions, selectQuestion, questionFeedback, addHostQuestion, setChapter, bindSpeaker, invalidateInterview } from './interview.js';
 import { hostPrepare, hostLive, hostResults, roleOptions } from './interview-ui.js';
 import { readModelEvents } from './model-stream.js';
 import { last, requestDeadline } from './platform.js';
@@ -167,21 +167,25 @@ function render() {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if(renderedPanelKey)openPanels.set(renderedPanelKey,[...document.querySelectorAll('#main details[open]')].map(el=>el.querySelector('summary')?.textContent));
   renderedPanelKey=state.sessionId+':'+view;
-  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全·实时访谈助手 v0.5.4 · 留心听，问清楚。</footer>';
+  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全·实时访谈助手 v0.5.5 · 留心听，问清楚。</footer>';
   for(const el of document.querySelectorAll('#host-question,#outline-paste,[data-summary]')){const key=state.sessionId+':'+(el.id||el.dataset.summary);if(inputDrafts.has(key))el.value=inputDrafts.get(key);}
   for(const el of document.querySelectorAll('#main details'))if(openPanels.get(renderedPanelKey)?.includes(el.querySelector('summary')?.textContent))el.open=true;
   drawPreview(); updateModelProgress();
 }
+function refreshInterviewSuggestion(session) {
+  if (!streamPartial && !speechQueue.some(x => x.sessionId === session.id)) return ensureInterviewSuggestion(session);
+  return null;
+}
 function drawPreview() {
-  const { session } = current(state), q = activeQuestion(session);
-  drawHint(localCanvas, q, { paused: session.paused, ended: !!session.endedAt, demo: q?.source === 'demo' || state.settings.mode === 'demo', listening: !!session.confirmed, chapter: session.items.find(item => item.id === (q?.itemId || session.currentChapterId))?.label || '' });
+  const { session } = current(state), display = interviewDisplay(session), q = session.analysisVersion === 2 ? display.question : activeQuestion(session);
+  drawHint(localCanvas, q, { paused: session.paused, ended: !!session.endedAt, demo: q?.source === 'demo' || state.settings.mode === 'demo', listening: !!session.confirmed, ...display, chapter: session.items.find(item => item.id === (q?.itemId || session.currentChapterId))?.label || '' });
   if ($('hud')) { $('hud').width = 600; $('hud').height = 350; $('hud').getContext('2d').drawImage(localCanvas, 0, 0); }
 }
 async function syncGlasses() {
   drawPreview();
   if (!ready || !runtimeActive) { delivery = '手机预览可用；尚未连接显示接口'; return; }
   const { session } = current(state);
-  await presenter.present(localCanvas, session.paused || !!session.endedAt || !session.confirmed, {sessionId:session.id,questionId:activeQuestion(session)?.id || null,stableAt:session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
+  await presenter.present(localCanvas, session.paused || !!session.endedAt || !session.confirmed, {sessionId:session.id,questionId:activeQuestion(session)?.id || null,stableAt:activeQuestion(session)?.source === 'outline' ? null : session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
 }
 async function api(path, data, { binary = false, signal, backend = state.settings.backend, token = gatewayToken(backend), onProgress } = {}) {
   backend = normalizeBackend(backend, mobileHost);
@@ -263,6 +267,7 @@ async function analyzeSegmentImpl(segment, batch) {
       }
       session.lastAnalysis={stableAt:target.asr?.receivedAt || null,completedAt:Date.now(),batchSize:turns.length};
     }
+    refreshInterviewSuggestion(session);
     await save(); render(); void syncGlasses();
   } catch (e) { if (e.name !== 'AbortError' && !controller.signal.aborted) {session.analysisError=e.message || '分析失败，原话已保留，可重试。';notify(session.analysisError,'error');await save();} }
   finally { busy = false; if(request===controller)request=null; render(); }
@@ -368,7 +373,7 @@ async function beginRecording(blob = null) {
     signal: startupController.signal,
     isCancelled: () => !valid(),
     onStage: message => { if (valid()) { streamNotice = message; for (const id of ['stream-notice', 'recording-progress']) if ($(id)) $(id).textContent = message; } },
-    onPartial: text => { if (!valid()) return; streamPartial = text; updateStreamingPreview(); },
+    onPartial: text => { if (!valid()) return; streamPartial = text; updateStreamingPreview(); if (!text && !busy && refreshInterviewSuggestion(session)) { void save(); render(); void syncGlasses(); } },
     onChunk: ms => { if (valid()) { capturedMs += ms || 0; updateStreamingPreview(); } },
     onFinal: item => {
       if (!valid()) return;
@@ -388,7 +393,7 @@ async function beginRecording(blob = null) {
       if (segment && (segment.text !== item.text || (session.analysisVersion === 2 && segment.speakerKey !== speakerKey))) { cancelRequest(); correctSegment(session, segment.id, item.text, session.analysisVersion === 2 ? (session.speakerBindings[speakerKey] || 'unknown') : segment.role, segment.roleSource || 'auto'); if (session.analysisVersion === 2) segment.speakerKey = speakerKey; void save(); streamError = '识别服务修订了稳定分句，已撤回相关旧分析，请核对并重新分析。'; render(); void syncGlasses(); }
     },
     onError: error => { if (!valid()) return; streamError = error.message; streamNotice = '录音未完成，请按下方错误提示处理后重试。'; notify(error.message, 'error'); void stopRecording(true); },
-    onStopped: () => { if (!valid() || streamDraining) return; recording = null; streamStatus = 'idle'; streamPartial = ''; streamNotice = '录音已停止，已保留稳定分句。'; scheduleSpeech(); render(); }
+    onStopped: () => { if (!valid() || streamDraining) return; recording = null; streamStatus = 'idle'; streamPartial = ''; streamNotice = '录音已停止，已保留稳定分句。'; scheduleSpeech(); if (!busy && refreshInterviewSuggestion(session)) void save(); render(); void syncGlasses(); }
   };
   try {
     await save({ strict: true });
@@ -480,6 +485,7 @@ document.addEventListener('click', async event => {
         if (!prior.endedAt) { notify('该主题已有进行中的访谈，已打开。'); state.sessionId = prior.id; view = prior.confirmed ? 'live' : 'prepare'; }
         else { const added = newSession(next.template, next.id, prior.items); added.goal = prior.goal; added.role = prior.role; if (prior.analysisVersion === 2) { added.guestBackground=prior.guestBackground; added.backgroundSource=prior.backgroundSource; added.boundaries=prior.boundaries; } next.sessions.push(added); state.sessionId = added.id; view = 'prepare'; }
       } else { state.sessionId = action === 'open-session' ? id : last(next.sessions).id; view = action === 'new-topic' ? 'prepare' : 'live'; }
+      refreshInterviewSuggestion(current(state).session);
       await save(); render(); await syncGlasses(); return;
     }
     if (action === 'add-item' || action === 'remove-item' || action === 'move-item') {
@@ -521,6 +527,7 @@ document.addEventListener('click', async event => {
       if (action === 'ask-deferred') { const q=session.questions.find(q=>q.id===id && q.status==='deferred'); if (q && !session.paused && !session.endedAt) { q.status='asked'; q.manuallyAsked=true; q.askedAfter=session.segments.length; session.revision++; } }
       if (action === 'live-move-item') { if (session.endedAt || session.paused) return; const i=session.items.findIndex(x=>x.id===id); if (i>=0 && i<session.items.length-1) [session.items[i],session.items[i+1]]=[session.items[i+1],session.items[i]]; session.revision++; }
       if (action === 'save-summary') { const input=[...document.querySelectorAll('[data-summary]')].find(x=>x.dataset.summary===id); if (!input || input.value.length>5000) throw new Error('摘要无效。'); session.chapterSummaries[id]=input.value; session.manualSummaryChapters ||= {}; session.manualSummaryChapters[id]=true; session.revision++; }
+      refreshInterviewSuggestion(session);
       await save(); render(); void syncGlasses(); return;
     }
     if (action === 'confirm-text') return await confirmAndRecord({record:false});
@@ -535,11 +542,12 @@ document.addEventListener('click', async event => {
       await analyzeSegment(seg); return;
     }
     if (action === 'retry') return await analyzeSegment(session.segments.find(seg => seg.id === id));
-    if (['asked', 'skipped', 'deferred'].includes(action)) { cancelRequest(); if (session.analysisVersion === 2) questionFeedback(session, id || activeQuestion(session)?.id, action); else feedback(session, action); await save(); render(); await syncGlasses(); notify(action === 'asked' ? '已标记为提出，缺口仍等待回答。' : action === 'skipped' ? '已跳过这条提示。' : '已放入稍后处理，可在记录中查看。'); return; }
+    if (['asked', 'skipped', 'deferred'].includes(action)) { cancelRequest(); if (session.analysisVersion === 2) questionFeedback(session, id || activeQuestion(session)?.id, action); else feedback(session, action); refreshInterviewSuggestion(session); await save(); render(); await syncGlasses(); notify(action === 'asked' ? '已标记为提出，缺口仍等待回答。' : action === 'skipped' ? '已跳过这条提示。' : '已放入稍后处理，可在记录中查看。'); return; }
     if (action === 'pause') {
       if (!session.paused) resumeCaptureSessionId = (recording || streamStatus === 'starting') ? session.id : null;
       const resumeCapture = session.paused && resumeCaptureSessionId === session.id;
       cancelRequest(); await stopRecording(true); session.paused = !session.paused; session.revision++;
+      refreshInterviewSuggestion(session);
       await save(); render(); await syncGlasses();
       if (!session.paused) { resumeCaptureSessionId = null; if (resumeCapture) await beginRecording(); }
       return;
@@ -585,6 +593,7 @@ async function confirmAndRecord({ record = true } = {}) {
     if (session.endedAt) throw new Error('这次访谈已结束，请新建一次访谈。');
     if(!session.segments.length)session.startedAt=now();
     session.confirmed = true; session.paused = false;
+    refreshInterviewSuggestion(session);
     // 先显示启动状态；存储和眼镜传输不再让准备页看起来毫无反应。
     view = 'live'; streamNotice = '清单已确认，正在启动录音…'; streamError = ''; render(); window.scrollTo(0, 0);
     if (state.settings.mode === 'model' && record) await beginRecording();
@@ -687,6 +696,7 @@ async function initialize() {
     const backend = backendForHost(state.settings.backend, info?.transport, DEFAULT_GATEWAY, !!DEFAULT_GATEWAY_TOKEN, state.settings.backendExplicit);
     if (backend !== state.settings.backend) { state.settings.backend = backend; await save(); }
     $('bridge-badge').textContent = info?.transport === 'desktop-simulator' ? 'Studio 模拟器' : info?.connected ? '设备已连接' : 'App 已连接';
+    if (refreshInterviewSuggestion(current(state).session)) await save();
     $('bridge-badge').classList.add('ok'); render(); await syncGlasses();
     if (mobileHost && (!state.settings.backend || !gatewayToken())) openSettings();
   } catch {

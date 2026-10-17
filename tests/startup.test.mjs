@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as core from '../web/core.js';
 import {hostPrepare} from '../web/interview-ui.js';
-import {availableQuestions} from '../web/interview.js';
+import {availableQuestions, ensureInterviewSuggestion, interviewDisplay} from '../web/interview.js';
 import { DEMOS } from '../web/fixtures.js';
 import { requestDeadline, abortable, last } from '../web/platform.js';
 import { readModelEvents } from '../web/model-stream.js';
@@ -36,7 +36,7 @@ function appHarness({ emptyItem = false, storageFailure = false } = {}) {
     storage: { async get() { return { value: null }; }, async set() { if (storageFailure) throw new Error('PERMISSION_DENIED'); } }
   };
   const context = vm.createContext({
-    ...core, DEMOS, last, requestDeadline, runInForeground, createInterviewStore, document, window: { scrollTo() {}, addEventListener() {} },
+    ...core, ensureInterviewSuggestion, interviewDisplay, DEMOS, last, requestDeadline, runInForeground, createInterviewStore, document, window: { scrollTo() {}, addEventListener() {} },
     AbortController, location: { origin: 'https://mobile.test' }, localStorage: { getItem() { return null; } },
     DEFAULT_GATEWAY: state.settings.backend, DEFAULT_GATEWAY_TOKEN: 'test-only-device-code-32-characters',
     accessForGateway: () => 'test-only-device-code-32-characters', normalizeBackend: x => x, endpoint: (base, path) => base + path,
@@ -220,4 +220,14 @@ test('旧分析期间收到新发言时保存事实但收起过时提示',async(
  const work=vm.runInContext(`state=newState('host');storageLoaded=true;ready=false;render=()=>{};syncGlasses=async()=>{};localStorage.setItem=()=>{};state.settings.mode='model';state.settings.backend='https://cloud.test/wenquan';const s2=current(state).session;s2.confirmed=true;const sg2=addSegment(s2,'开始做工具');sg2.role='guest';analyzeSegment(sg2);`,h.context);
  await new Promise(r=>setImmediate(r));vm.runInContext(`speechQueue.push({sessionId:s2.id,text:'新的话题'});`,h.context);release();await work;
  assert.equal(vm.runInContext('s2.claims.length',h.context),1);assert.equal(vm.runInContext('activeQuestion(s2)',h.context),null);
+});
+
+test('文本确认即保存并同步首个主线建议，无语音无需等模型，提纲建议不计入模型延迟',async()=>{
+ const h=await loadApp();h.context.frames=[];
+ vm.runInContext(`state=newState('aidol');storageLoaded=ready=true;render=()=>{};capturePreparation=()=>{};presenter={present:async(_canvas,clear,metadata)=>frames.push({clear,metadata})};`,h.context);
+ await vm.runInContext('confirmAndRecord({record:false})',h.context);
+ assert.equal(vm.runInContext('activeQuestion(current(state).session).source',h.context),'outline');
+ assert.equal(vm.runInContext('current(state).session.segments.length',h.context),0);
+ assert.equal(h.context.frames.at(-1).clear,false);assert.equal(h.context.frames.at(-1).metadata.stableAt,null);
+ assert.equal(vm.runInContext('current(state).session.questions.some(q=>q.status==="asked")',h.context),false);
 });

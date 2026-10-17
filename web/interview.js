@@ -7,6 +7,33 @@ export const isInterview = s => s.analysisVersion === 2;
 export const availableQuestions = s => s.questions.filter(q => ['candidate', 'displayed'].includes(q.status));
 const text = (v, max = 1600) => typeof v === 'string' && !!v.trim() && v.length <= max;
 export const normalizedQuestion = v => String(v).replace(/[\s，。？！、,.?!“”"'：:]/g, '').toLowerCase();
+// Local suggestions work before the first audio turn and without a model call.
+// Displaying a suggestion never constitutes asking it or completing a chapter.
+export function ensureInterviewSuggestion(s) {
+  if (!isInterview(s) || !s.confirmed || s.paused || s.endedAt || availableQuestions(s).length || s.questions.some(q => q.status === 'asked' && q.itemId === s.currentChapterId) || s.pendingAsr?.length || s.segments.some(seg => seg.analyzedRevision !== seg.revision)) return null;
+  const start = Math.max(0, s.items.findIndex(i => i.id === s.currentChapterId));
+  const ordered = [...s.items.slice(start), ...s.items.slice(0, start)];
+  const consumed = item => s.questions.some(q => ['asked', 'answered', 'skipped', 'deferred'].includes(q.status) && (q.guideKind === 'main' && q.itemId === item.id || normalizedQuestion(q.text) === normalizedQuestion(item.question)));
+  const item = ordered.find(i => s.chapterStates?.[i.id] !== 'closed' && !consumed(i));
+  const closing = !item;
+  if (closing && (!s.items.length || s.questions.some(q => q.guideKind === 'closing' && ['asked','answered','skipped','deferred'].includes(q.status)))) return null;
+  const target = item || s.items.at(-1);
+  const value = closing ? '还有什么重要内容，是我们刚才没有聊到的？' : target.question.trim();
+  // Keep a complete spoken question on the HUD, even for long custom outlines.
+  const hint = [...value].length <= 28 ? value : `关于${[...target.label].slice(0,16).join('')}，能具体聊聊吗？`;
+  const q = { id: uid(), itemId: target.id, text: value, hint, status: 'displayed', type: closing || target.id !== s.currentChapterId ? 'transition' : 'supplement', basisType: 'outline', source: 'outline', guideKind: closing ? 'closing' : 'main', informationGoal: closing ? '邀请补充遗漏内容' : `主线：${target.label}`.slice(0,100), gap: closing ? '提纲建议已依次处理，可邀请嘉宾补充；是否结束由你决定。' : '来自已确认的访谈提纲，可按现场情况采用、略过或稍后再问。', segmentId: null, quote: null, createdAt: now() };
+  s.questions.push(q); s.displayedQuestionId = q.id; s.newCandidates = false; s.revision++;
+  return q;
+}
+export function interviewDisplay(s) {
+  if (!isInterview(s) || !s.confirmed || s.paused || s.endedAt) return { question: null };
+  const active = availableQuestions(s).find(q => q.id === s.displayedQuestionId);
+  const waiting = !active && [...s.questions].reverse().find(q => q.status === 'asked' && q.itemId === s.currentChapterId);
+  const question = active || waiting || null;
+  const index = s.items.findIndex(i => i.id === (question?.itemId || s.currentChapterId));
+  const next = s.items.slice(index + 1).find(i => s.chapterStates?.[i.id] !== 'closed');
+  return { question, waiting: !!waiting, chapter: s.items[index]?.label || '', progress: index >= 0 ? `${index + 1}/${s.items.length}` : '', nextChapter: next?.label || '', complete: !question && s.questions.some(q => q.guideKind === 'closing') };
+}
 export function chapterStatus(s, id) {
   if (s.chapterStates?.[id] === 'closed') return 'closed';
   if (s.questions.some(q => q.itemId === id && q.status === 'asked')) return 'supplement';
@@ -24,10 +51,13 @@ export function questionFeedback(s, id, status) {
   if (s.paused || s.endedAt || !['asked', 'skipped', 'deferred'].includes(status)) return;
   const q = availableQuestions(s).find(x => x.id === id);
   if (!q) return;
-  q.status = status; q.feedbackAt = now(); if (status === 'asked') q.manuallyAsked = true; q.askedAfter = status === 'asked' ? s.segments.length : undefined;
+  q.status = status; q.feedbackAt = now(); if (status === 'asked') { q.manuallyAsked = true; s.currentChapterId = q.itemId; } q.askedAfter = status === 'asked' ? s.segments.length : undefined;
   if (s.displayedQuestionId === id) s.displayedQuestionId = null;
   const next = availableQuestions(s)[0];
-  if (next && !s.displayedQuestionId) { next.status = 'displayed'; s.displayedQuestionId = next.id; }
+  if (status === 'asked') {
+    for (const old of availableQuestions(s)) old.status = 'candidate';
+    s.displayedQuestionId = null;
+  } else if (next && !s.displayedQuestionId) { next.status = 'displayed'; s.displayedQuestionId = next.id; }
   s.revision++;
 }
 export function addHostQuestion(s, value, itemId = s.currentChapterId, segmentId = null, quote = null) {
@@ -35,6 +65,8 @@ export function addHostQuestion(s, value, itemId = s.currentChapterId, segmentId
   const same = s.questions.find(q => normalizedQuestion(q.text) === normalizedQuestion(value) && q.status === 'asked');
   if (same) return same;
   const q = { id: uid(), itemId, text: value.trim(), status: 'asked', type: 'supplement', basisType: 'outline', gap: '主持人实际提出，等待嘉宾回应', source: segmentId ? 'model' : 'manual', segmentId, quote, createdAt: now(), askedAfter: s.segments.length, askedSegmentId: segmentId, autoAsked: !!segmentId, manuallyAsked: !segmentId };
+  for (const old of availableQuestions(s)) old.status = 'superseded';
+  s.displayedQuestionId = null; s.currentChapterId = itemId;
   s.questions.push(q); s.revision++; return q;
 }
 export function setChapter(s, id, close = false) {
@@ -134,13 +166,13 @@ export function applyInterview(s, segment, raw, ctx, source) {
   const newQuestions=new Map();
   for (const h of result.hostQuestions) {
     const q = s.questions.find(q => q.id === h.questionId);
-    if (q) { q.status = 'asked'; q.askedAfter = ctx.segments.find(x=>x.id===h.segmentId)?.index || ctx.segmentIndex; q.askedSegmentId = h.segmentId; q.feedbackAt = now(); q.autoAsked = true; }
+    if (q) { q.status = 'asked'; q.askedAfter = ctx.segments.find(x=>x.id===h.segmentId)?.index || ctx.segmentIndex; q.askedSegmentId = h.segmentId; q.feedbackAt = now(); q.autoAsked = true; s.currentChapterId = q.itemId; }
     else { const q = addHostQuestion(s, h.text, h.itemId, h.segmentId, h.quote); q.askedAfter = ctx.segments.find(x=>x.id===h.segmentId)?.index || ctx.segmentIndex; newQuestions.set(`host:${h.segmentId}`,q); }
   }
-  for (const r of result.responses) { const q = s.questions.find(q => q.id === r.questionId) || newQuestions.get(r.questionId); q.status = 'answered'; q.response = r; }
+  for (const r of result.responses) { const q = s.questions.find(q => q.id === r.questionId) || newQuestions.get(r.questionId); q.status = 'answered'; q.response = r; if (q.guideKind === 'main') s.currentChapterId = q.itemId; }
   for (const r of result.reviews) { const q=s.questions.find(q=>q.id===r.questionId); if (q && ['candidate','displayed'].includes(q.status)) { if(r.status==='superseded')q.status='superseded'; q.reviewReason=r.reason; q.reviewedAt=now(); } }
-  for(const q of availableQuestions(s)) if(Date.now()-Date.parse(q.reviewedAt || q.createdAt)>60000) { q.status='superseded';q.reviewReason='提示超过60秒未重新确认，已收起。'; }
-  const retained = availableQuestions(s).find(q => q.id === s.displayedQuestionId);
+  for(const q of availableQuestions(s)) if(q.source !== 'outline' && Date.now()-Date.parse(q.reviewedAt || q.createdAt)>60000) { q.status='superseded';q.reviewReason='提示超过60秒未重新确认，已收起。'; }
+  const retained = availableQuestions(s).find(q => q.id === s.displayedQuestionId && !(q.source === 'outline' && result.candidates.length));
   for (const q of availableQuestions(s)) if (q !== retained) q.status = 'superseded';
   const fresh = result.candidates.filter(q => !retained || normalizedQuestion(q.text) !== normalizedQuestion(retained.text) && normalizedQuestion(q.informationGoal) !== normalizedQuestion(retained.informationGoal)).slice(0, retained ? 2 : 3);
   for (const q of fresh) s.questions.push({ ...q, id: uid(), status: 'candidate', source, createdAt: now() });

@@ -32,3 +32,13 @@ test('已开始访谈且无建议显示低亮度待机，暂停和结束优先�
   assert.ok(texts.some(x=>x.text==='有问题'));assert.ok(!texts.some(x=>x.text==='安静聆听'));
   for(const options of [{paused:true},{ended:true}]){texts.length=0;drawHint(canvas,null,{listening:true,...options});assert.equal(texts.length,0);}
 });
+
+test('眼镜区分主线建议、追问与等待回答，显示章节位置和下一条主线',()=>{
+ const texts=[], context={...ctx,measureText(text){const size=Number(this.font?.match(/(\d+)px/)?.[1]||44);return {width:[...text].reduce((n,c)=>n+(/[\u0000-\u007f]/u.test(c)?size/2:size),0)};},fillRect(){},fillText(text){texts.push(text);}},canvas={getContext:()=>context};
+ const q={text:'能介绍你们的项目吗？',source:'outline',guideKind:'main'};
+ drawHint(canvas,q,{chapter:'项目与演示',progress:'1/5',nextChapter:'痛点与起因'});
+ assert.ok(texts.includes('主线建议'));assert.ok(texts.includes('1/5 · 项目与演示'));assert.ok(texts.includes('接下来可聊：痛点与起因'));assert.ok(texts.includes('建议 · 自由选择'));
+ texts.length=0;drawHint(canvas,q,{waiting:true});assert.ok(texts.includes('等待回答'));assert.ok(texts.includes('先听嘉宾回答，再决定是否追问'));
+ texts.length=0;drawHint(canvas,{...q,source:'model',type:'deepen'});assert.ok(texts.includes('追问建议'));
+ texts.length=0;drawHint(canvas,{...q,guideKind:'closing'});assert.ok(texts.includes('收尾建议'));
+});

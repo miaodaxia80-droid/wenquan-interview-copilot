@@ -162,8 +162,9 @@ details>summary:hover { color: var(--accent-strong); }
 .status-dot.paused { background: var(--text-muted); }
 .session-notice { margin-bottom: 22px; }
 .current-question { position: relative; border: 1.5px solid var(--accent); border-radius: var(--radius-lg); background: linear-gradient(135deg,rgba(16,185,129,.08),rgba(16,185,129,.02)); padding: 24px 20px 18px; margin: 18px 0 20px; box-shadow: var(--shadow-glow); }
-.current-question::before { content: '当前问题'; position: absolute; left: 20px; top: -8px; padding: 0 8px; background: var(--bg-base); color: var(--accent-strong); font-size: 11px; font-weight: 600; }
+.current-question::before { content: '建议问题'; position: absolute; left: 20px; top: -8px; padding: 0 8px; background: var(--bg-base); color: var(--accent-strong); font-size: 11px; font-weight: 600; }
 .current-question.is-waiting::before { content: '安静聆听'; }
+.current-question.is-answering::before { content: '等待回答'; }
 .current-question .q-text { font-size: 18px; font-weight: 500; line-height: 1.6; overflow-wrap: anywhere; }
 .current-question.is-waiting { border-color: var(--border-subtle); box-shadow: var(--shadow-card); background: var(--bg-elevated); }
 .current-question.is-waiting>.fine { margin-top: 8px; }
