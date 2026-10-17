@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light"><title>问全 · 访谈追问助手</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="masthead"><a class="brand" href="#" aria-label="问全首页"><span class="brandmark">问</span><span>问全<small>留心听，问清楚。</small></span></a><span id="bridge-badge" class="badge">连接中</span></header>
+  <nav aria-label="主要页面"><button data-view="topics">访谈主题</button><button data-view="prepare">准备</button><button data-view="live" class="active">访谈中</button><button data-view="results">记录</button></nav>
+  <main id="main"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <input id="audio-file-input" type="file" class="hidden" accept=".ogg,.wav,.mp3,.m4a,.mp4,.webm,.flac,audio/*" aria-label="导入音频文件">
+  <dialog id="settings"><form id="settings-form"><div class="section-head"><h2>分析设置</h2><button type="button" id="close-settings" aria-label="关闭设置">✕</button></div><p class="muted">火山和文本模型密钥只保存在云端。手机独立连接，无需 Mac 开机。</p><details><summary>粘贴连接配置</summary><label>连接配置<input id="connection-profile" type="password" autocomplete="off" placeholder="粘贴管理员提供的完整 JSON"></label><button id="import-connection" type="button" class="small secondary">填入连接配置</button></details><label>分析方式<select name="mode"><option value="demo">离线脚本演示（固定结果）</option><option value="model">真实模型分析（需后端）</option></select></label><label>云端网关地址<input name="backend" type="url" required placeholder="https://你的域名/问全路径"></label><label>设备访问码<input name="access" type="password" autocomplete="off" maxlength="256" placeholder="管理员提供的网关访问码"></label><p class="fine">个人安装包已预置云端连接，可直接开始访谈。此处用于手动更换服务；修改不会进入访谈记录或导出。</p><p id="connection-origin" class="fine"></p><p class="fine">默认持续采集并发送到火山流式 ASR；稳定分句自动保存，交给文本模型分析。无需 App 本地 ASR。转写和分析均可人工更正。</p><div id="service-status" class="notice">尚未检测服务</div><div class="row"><button type="button" id="check-service" class="secondary">检测连接</button><button type="submit" class="primary">保存设置</button></div></form></dialog>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

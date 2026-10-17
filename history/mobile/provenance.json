@@ -1,0 +1,20 @@
+[
+  {
+    "version": "0.2.5",
+    "sourcePackage": "wenquan-0.2.5.mmpkg",
+    "sourceSha256": "2add2f8255b8f4f6c2946c372d1ac5ad4cd3bef36088be9bdc3785067444fdcb",
+    "verifiedPayloadFiles": 16
+  },
+  {
+    "version": "0.3.0",
+    "sourcePackage": "wenquan-0.3.0.mmpkg",
+    "sourceSha256": "d3c170507d259498f224ae0e269ce3496e0f794b264fa501d58524b730523a0e",
+    "verifiedPayloadFiles": 18
+  },
+  {
+    "version": "0.4.0",
+    "sourcePackage": "wenquan-0.4.0.mmpkg",
+    "sourceSha256": "0bbf98fe9d9005302036d7acafe75f7a7aaa8f8417e6aded86db5c0a8a19e53f",
+    "verifiedPayloadFiles": 19
+  }
+]
