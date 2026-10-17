@@ -12,10 +12,25 @@ import { startNativeRecording, startFileReplay } from './recording.js';
 import { inspectAudio, readAudioStream, MAX_AUDIO_BYTES, AUDIO_EXTENSIONS } from './audio-file.js';
 import { DEFAULT_GATEWAY, DEFAULT_GATEWAY_TOKEN } from './config.js';
 import { LOCAL_BACKEND, normalizeBackend, backendForHost, accessForGateway, endpoint, networkFailure } from './network.js';
+import { createInterviewStore } from './interview-storage.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const KEY = 'wenquan.interviews.v1';
+let bridgeStore, browserStore;
+function recordStore() {
+  if (!ready) return browserStore ||= createInterviewStore({
+    get: key => { const value = localStorage.getItem(key); return value === null ? null : JSON.parse(value); },
+    set: (key, value) => localStorage.setItem(key, JSON.stringify(value)),
+    remove: key => localStorage.removeItem(key)
+  }, KEY);
+  const operation = work => runInForeground(bridge.gm, work, { signal: lifetime.signal });
+  return bridgeStore ||= createInterviewStore({
+    get: async key => (await operation(() => bridge.gm.storage.get(key))).value,
+    set: (key, value) => operation(() => bridge.gm.storage.set(key, value)),
+    remove: key => operation(() => bridge.gm.storage.remove(key))
+  }, KEY);
+}
 let state = newState(), view = 'prepare', busy = false, ready = false, bridge, presenter, subscription;
 let saveQueue = Promise.resolve(), toastTimer, request, recording = null, audioBlob = null, editing = null, deleteId = null;
 let draftRole = 'unknown';
@@ -65,16 +80,23 @@ function safeState(value) {
   if (value.settings.captureMode !== 'continuous') value.settings = { ...value.settings, mode: 'model', captureMode: 'continuous' };
   return value;
 }
+function storageNotice(error = '') {
+  const box = $('storage-error');
+  if (!box) return;
+  box.hidden = !error;
+  $('storage-error-detail').textContent = error ? `记录尚未保存：${error}。请先导出备份，暂勿关闭页面。` : '';
+}
 function save({ strict = false } = {}) {
   if (!storageLoaded) return Promise.reject(new Error('记录尚未恢复，已阻止覆盖保存。'));
   const data = clone(state);
   saveQueue = saveQueue.catch(() => {}).then(async () => {
     if (closed) return;
-    if (ready) await runInForeground(bridge.gm, () => closed ? undefined : bridge.gm.storage.set(KEY, data), { signal: lifetime.signal });
-    else localStorage.setItem(KEY, JSON.stringify(data));
+    await recordStore().save(data);
+    storageNotice();
   }).catch(error => {
+    storageNotice(error.message || '宿主存储未响应');
     notify('保存失败，请先导出记录，避免关闭后丢失。', 'error');
-    if (strict) throw new Error(`访谈清单未能保存：${error.message || '宿主存储未响应'}。请保持问全在前台后重试。`);
+    if (strict) throw new Error(`访谈清单未能保存：${error.message || '宿主存储未响应'}。当前内容仍在本页，请先导出备份，暂勿关闭。`);
   });
   return saveQueue;
 }
@@ -145,7 +167,7 @@ function render() {
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if(renderedPanelKey)openPanels.set(renderedPanelKey,[...document.querySelectorAll('#main details[open]')].map(el=>el.querySelector('summary')?.textContent));
   renderedPanelKey=state.sessionId+':'+view;
-  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全·实时访谈助手 v0.5.3 · 留心听，问清楚。</footer>';
+  $('main').innerHTML = (view === 'topics' ? renderTopics() : view === 'prepare' ? renderPrepare(topic, session) : view === 'results' ? renderResults(topic, session) : renderLive(topic, session)) + '<footer>问全·实时访谈助手 v0.5.4 · 留心听，问清楚。</footer>';
   for(const el of document.querySelectorAll('#host-question,#outline-paste,[data-summary]')){const key=state.sessionId+':'+(el.id||el.dataset.summary);if(inputDrafts.has(key))el.value=inputDrafts.get(key);}
   for(const el of document.querySelectorAll('#main details'))if(openPanels.get(renderedPanelKey)?.includes(el.querySelector('summary')?.textContent))el.open=true;
   drawPreview(); updateModelProgress();
@@ -430,6 +452,8 @@ document.addEventListener('click', async event => {
     if (!action) return;
     snapshotDraft();
     const { topic, session } = current(state), id = button.dataset.id;
+    if (action === 'retry-save') { await save({ strict: true }); notify('访谈记录已保存。'); return; }
+    if (action === 'backup-current') return download(topic);
     if (action === 'generate-report') return await generateReport();
     if (action === 'draft-role') { if (!['host','guest','unknown'].includes(id)) return; draftRole=id; if ($('draft-role')) $('draft-role').value=id; document.querySelectorAll('[data-action="draft-role"]').forEach(b=>{ b.classList.toggle('secondary',b.dataset.id===id); b.setAttribute('aria-pressed',String(b.dataset.id===id)); }); return; }
     if (action === 'settings') {
@@ -654,7 +678,7 @@ async function initialize() {
       session.deliveryMetrics.push({questionId:meta.questionId,stableAt:meta.stableAt,analysisAt:meta.analysisAt,confirmedAt:receipt.confirmedAt,stableToDisplayMs:receipt.confirmedAt-meta.stableAt});
       session.deliveryMetrics=session.deliveryMetrics.slice(-200);void save();
     });
-    try { const saved = (await runInForeground(bridge.gm, () => bridge.gm.storage.get(KEY), { signal: lifetime.signal })).value; if (saved) state = safeState(saved); storageLoaded = true; }
+    try { const saved = await recordStore().load(); if (saved) state = safeState(saved); storageLoaded = true; }
     catch (e) { notify(e.message || '未能恢复本机记录，请检查存储权限。', 'error'); render(); return; }
     try { subscription = (await bridge.gm.device.subscribeEvents(['connection'])).subscriptionId; } catch { /* 可选权限：不阻塞文本访谈。 */ }
     let info;
@@ -667,8 +691,8 @@ async function initialize() {
     if (mobileHost && (!state.settings.backend || !gatewayToken())) openSettings();
   } catch {
     if (ready) { render(); return; }
-    try { const value = localStorage.getItem(KEY); if (value) state = safeState(JSON.parse(value)); }
-    catch { notify('浏览器存储不可用或记录损坏，请先导出重要记录。', 'error'); }
+    try { const value = await recordStore().load(); if (value) state = safeState(value); }
+    catch { notify('浏览器存储不可用或记录损坏，请先保留备份，未覆盖原记录。', 'error'); render(); return; }
     storageLoaded = true; state.settings.backend ||= DEFAULT_GATEWAY || LOCAL_BACKEND; $('bridge-badge').textContent = '手机页面预览'; render();
   }
 }

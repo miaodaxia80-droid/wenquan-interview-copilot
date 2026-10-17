@@ -9,6 +9,7 @@ import { DEMOS } from '../web/fixtures.js';
 import { requestDeadline, abortable, last } from '../web/platform.js';
 import { readModelEvents } from '../web/model-stream.js';
 import { runInForeground } from '../web/foreground.js';
+import { createInterviewStore } from '../web/interview-storage.js';
 
 function appHarness({ emptyItem = false, storageFailure = false } = {}) {
   const state = core.newState('fde'); state.settings.backend = 'https://cloud.test/wenquan';
@@ -32,10 +33,10 @@ function appHarness({ emptyItem = false, storageFailure = false } = {}) {
   let opened = 0;
   const gm = {
     runtime: { async getLifecycleState() { return { state: 'running' }; }, async getCapabilities() { return { methods: ['audio.openCapture'] }; } },
-    storage: { async set() { if (storageFailure) throw new Error('PERMISSION_DENIED'); } }
+    storage: { async get() { return { value: null }; }, async set() { if (storageFailure) throw new Error('PERMISSION_DENIED'); } }
   };
   const context = vm.createContext({
-    ...core, DEMOS, last, requestDeadline, runInForeground, document, window: { scrollTo() {}, addEventListener() {} },
+    ...core, DEMOS, last, requestDeadline, runInForeground, createInterviewStore, document, window: { scrollTo() {}, addEventListener() {} },
     AbortController, location: { origin: 'https://mobile.test' }, localStorage: { getItem() { return null; } },
     DEFAULT_GATEWAY: state.settings.backend, DEFAULT_GATEWAY_TOKEN: 'test-only-device-code-32-characters',
     accessForGateway: () => 'test-only-device-code-32-characters', normalizeBackend: x => x, endpoint: (base, path) => base + path,
@@ -74,7 +75,26 @@ test('存储拒绝显示清单未保存并停止启动，不被眼镜或短暂 t
   await vm.runInContext('confirmAndRecord()', h.context);
   assert.match(h.node('main').innerHTML, /访谈清单未能保存/);
   assert.match(h.node('main').innerHTML, /PERMISSION_DENIED/);
+  assert.equal(h.node('storage-error').hidden, false);
+  assert.match(h.node('storage-error-detail').textContent, /暂勿关闭页面/);
   assert.equal(h.opened(), 0);
+});
+test('应用实际保存入口在手机 64 KB 限制下保存长转写并可重新恢复', async () => {
+  const h = await loadApp(), values = new Map();
+  h.context.fixtureGm.storage = {
+    async get(key) { return { value: values.get(key) ?? null }; },
+    async set(key, value) {
+      assert.ok(Buffer.byteLength(JSON.stringify(value)) <= 64 * 1024);
+      values.set(key, JSON.parse(JSON.stringify(value)));
+    },
+    async remove(key) { values.delete(key); }
+  };
+  vm.runInContext(`for(let i=0;i<100;i++) addSegment(current(state).session, '嘉宾回答与完整原话。'.repeat(100), 'audio');`, h.context);
+  const expected = vm.runInContext('JSON.stringify(state)', h.context);
+  assert.ok(Buffer.byteLength(expected) > 64 * 1024);
+  await vm.runInContext('save({strict:true})', h.context);
+  const restored = await createInterviewStore({ get: async key => values.get(key) }).load();
+  assert.equal(JSON.stringify(restored), expected);
 });
 test('旧 WebView 缺少 structuredClone、findLast、at 和 Object.hasOwn 时仍可保存与显示追问', async () => {
   const source = (await readFile(new URL('../web/core.js', import.meta.url), 'utf8')).replace(/^import .*;\n/gm, '').replace(/^export /gm, '');

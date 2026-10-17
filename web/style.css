@@ -102,6 +102,8 @@ body:has(.view-live) main { padding-top: 24px; padding-bottom: 16px; }
 .pill.conflict { color: var(--status-danger); background: rgba(220,38,38,.07); border-color: transparent; }
 .role-guest { color: var(--text-secondary); background: var(--bg-hover); }
 .notice { color: var(--text-secondary); background: var(--accent-dim); border-radius: var(--radius-sm); padding: 12px 14px; margin: 14px 0; font-size: 13px; overflow-wrap: anywhere; }
+.storage-error { max-width: 752px; margin: 14px auto; }
+@media (max-width: 800px) { .storage-error { margin: 14px 24px; } }
 .notice.warn { color: var(--status-warning); background: rgba(217,119,6,.08); }
 .notice.error,.delete-confirm { color: var(--status-danger); background: rgba(220,38,38,.07); }
 .delete-confirm { padding: 12px; border-radius: var(--radius-sm); font-size: 13px; margin-top: 12px; }
