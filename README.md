@@ -34,7 +34,7 @@
 3. 会中先听回答，眼镜显示一条可选建议和主线上下文。实际自拟问题也可记录，已问与已回应分别管理。
 4. 点击“结束并整理”，生成整场核心内容、按主线归纳与待补问；要点带嘉宾原话出处，章节摘要可编辑并导出 Markdown。
 
-队友安装入口：[0.5.5.1 版本目录](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/tree/v0.5.5.1) · [下载 Studio 组合包](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/raw/refs/heads/v0.5.5.1/release/wenquan-0.5.5.1-Studio.zip)。下载 `wenquan-0.5.5.1-Studio.zip`，将整个 ZIP 导入 MemoMind Studio 后扫码安装；允许网络和录音权限，手机联网即可使用预置云端服务，无需手动填写设备访问码。安装请选发布附件，自动生成的 Source code 是源码归档。
+队友安装入口：[0.5.5.1 版本目录](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/tree/v0.5.5.1) · [下载 Studio 组合包](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/raw/refs/heads/v0.5.5.1/release/wenquan-0.5.5.1-Studio.zip)。下载 `wenquan-0.5.5.1-Studio.zip`，将整个 ZIP 导入 MemoMind Studio 后扫码安装；允许网络和录音权限，手机联网即可使用预置云端服务，无需手动填写设备访问码。导入这个 ZIP 文件；不要下载 GitHub 自动生成的 Source code 源码归档。
 
 本地安装包（与发布附件内容一致）：
 
