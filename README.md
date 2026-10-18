@@ -25,7 +25,7 @@
 | 项目复盘 | 30 分钟 | 目标与结果、关键节点、有效与受阻、下次怎么做 |
 | 专业观点 | 30 分钟 | 问题与概念、判断与依据、案例与分歧、边界与行动 |
 
-每个模板预填主题、访谈目标、计划时长、主线和可编辑的问题；不预填嘉宾回答。使用模板新建独立访谈，保留现有记录。当前自动检查 130/130 通过；原有开箱模板与待机的历史验证见 [0.5.2 开箱模板与待机验收](docs/开箱模板与待机_0.5.2_2026-10-17.md)。
+每个模板预填主题、访谈目标、计划时长、主线和可编辑的问题；不预填嘉宾回答。使用模板新建独立访谈，保留现有记录。当前自动检查 131/131 通过；原有开箱模板与待机的历史验证见 [0.5.2 开箱模板与待机验收](docs/开箱模板与待机_0.5.2_2026-10-17.md)。
 
 ## 使用与安装
 
@@ -34,20 +34,20 @@
 3. 会中先听回答，眼镜显示一条可选建议和主线上下文。实际自拟问题也可记录，已问与已回应分别管理。
 4. 点击“结束并整理”，生成整场核心内容、按主线归纳与待补问；要点带嘉宾原话出处，章节摘要可编辑并导出 Markdown。
 
-队友安装入口：[0.5.5 发布页](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/releases/tag/v0.5.5) · [下载 Studio 组合包](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/releases/download/v0.5.5/wenquan-0.5.5-Studio.zip)。下载 `wenquan-0.5.5-Studio.zip`，将整个 ZIP 导入 MemoMind Studio 后扫码安装；允许网络和录音权限，手机联网即可使用预置云端服务，无需手动填写设备访问码。安装请选发布附件，自动生成的 Source code 是源码归档。
+队友安装入口：[0.5.5.1 发布页](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/releases/tag/v0.5.5.1) · [下载 Studio 组合包](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/releases/download/v0.5.5.1/wenquan-0.5.5.1-Studio.zip)。下载 `wenquan-0.5.5.1-Studio.zip`，将整个 ZIP 导入 MemoMind Studio 后扫码安装；允许网络和录音权限，手机联网即可使用预置云端服务，无需手动填写设备访问码。安装请选发布附件，自动生成的 Source code 是源码归档。
 
 本地安装包（与发布附件内容一致）：
 
-- `release/问全-0.5.5-Studio.zip`：原生 Studio 导出的组合包，包含官方 GM Web Bridge v2，可导入 Studio 后扫码安装。
+- `release/wenquan-0.5.5.1-Studio.zip`：基于原生 Studio 导出内容更新的组合包，包含官方 GM Web Bridge v2，可导入 Studio 后扫码安装。
 - `release/wenquan-0.5.5.mmpkg`：手机插件包。
 
 Studio 已加载 0.5.5，显示“推荐组合：眼镜协议完全匹配”。本轮在眼镜模拟器验证零语音开场建议，并用两段虚构发言调用真实模型验证追问更新；保存重试后保留 9 个分块，最终构建刷新恢复记录。此前 0.5.4 已验证大记录保存与旧数据迁移，见对应验收文档。实体手机扫码安装、真实眼镜佩戴效果待用户验证。公网网关沿用 0.5.0，本轮未部署服务端。
 
-0.5.5 组合包按项目所有者要求公开发布，内置共享网关设备访问凭证，供队友直接联调；服务端模型与 ASR Key 不在手机包内。源码默认不包含设备访问凭证，重新构建时仍需配置。若设备保存过其他网关或访问码，需在设置中核对旧配置。发布附件 SHA-256：`fcbb58cb258a60b0337a893b4fff577140a90c27a81fd2c01ca7a8079f539920`。Studio 导出的 review v3 与当前 SDK 只接受 review v1/v2 的组合 ZIP 检查器存在兼容差异；本次完成配对元数据、组件字节及 review 哈希核对，不代表签名或审核批准。
+0.5.5.1 组合包按项目所有者要求公开发布，内置共享网关设备访问凭证，供队友直接联调；服务端模型与 ASR Key 不在手机包内。源码默认不包含设备访问凭证，重新构建时仍需配置。若设备保存过其他网关或访问码，需在设置中核对旧配置。0.5.5.1 发布附件 SHA-256：`f86997e84816cee43db0c23f19b99e81107d683aa756ca84d4eba375373c2405`。Studio 导出的 review v3 与当前 SDK 只接受 review v1/v2 的组合 ZIP 检查器存在兼容差异；本次完成配对元数据、组件字节及 review 哈希核对，不代表签名或审核批准。
 
 ## 源码与版本
 
-[GitHub main](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/tree/main) 为当前源码入口。0.5.2 浅色 UI 提交为 `88ba6f43527b3044b3475910e2562a6821092599`，0.5.3 新增 AIdol 快访模板（`47ba4660a9c18701b1b75d692dbc43eb8e1cde0e`）；0.5.4 修复手机存储单项容量限制，对应提交 `ce6093b2a92b321bf5daa75038bfcdb78afacb38`；0.5.5 增加主线建议，开发分支为 `feat/0.5.5-guided-suggestions`。
+[GitHub main](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/tree/main) 为当前源码入口。0.5.2 浅色 UI 提交为 `88ba6f43527b3044b3475910e2562a6821092599`，0.5.3 新增 AIdol 快访模板（`47ba4660a9c18701b1b75d692dbc43eb8e1cde0e`）；0.5.4 修复手机存储单项容量限制，对应提交 `ce6093b2a92b321bf5daa75038bfcdb78afacb38`；0.5.5 增加主线建议与现场体验优化，开发分支为 `feat/0.5.5-guided-suggestions`。
 
 [GitHub v0.5.1 标签](https://github.com/miaodaxia80-droid/wenquan-interview-copilot/tree/v0.5.1) 保留在 `b2e1380011bdf0abc9661b01e56b6bde416b9203`，包含原有 reviews / interviewSummary 修复。
 

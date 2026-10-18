@@ -43,6 +43,9 @@ const lifetime = new AbortController();
 let mobileHost = false;
 let modelProgress = null;
 let gatewayHealth = null;
+let startupCheck = { status: 'idle', checks: [], error: '' };
+let saveState = 'idle', lastSavedAt = null, saveError = '';
+let glassesSyncEpoch = 0;
 let resumeCaptureSessionId = null;
 const inputDrafts=new Map();
 const openPanels=new Map(); let renderedPanelKey=null;
@@ -86,14 +89,31 @@ function storageNotice(error = '') {
   box.hidden = !error;
   $('storage-error-detail').textContent = error ? `记录尚未保存：${error}。请先导出备份，暂勿关闭页面。` : '';
 }
+function savedAtLabel() {
+  if (!lastSavedAt) return '';
+  return Date.now() - lastSavedAt < 60000 ? '刚刚' : time(lastSavedAt);
+}
+function saveStatusMarkup() {
+  const text = saveState === 'saving' ? '正在保存…' : saveState === 'error' ? `保存失败 · ${saveError || '请导出备份'}` : saveState === 'saved' && lastSavedAt ? `已保存 · ${savedAtLabel()}` : '等待保存';
+  return `<div id="save-status" class="save-status ${saveState}" role="status" aria-live="polite"><span class="save-status-dot"></span>${esc(text)}</div>`;
+}
+function updateSaveStatus() {
+  const node = $('save-status');
+  if (!node) return;
+  const text = saveState === 'saving' ? '正在保存…' : saveState === 'error' ? `保存失败 · ${saveError || '请导出备份'}` : saveState === 'saved' && lastSavedAt ? `已保存 · ${savedAtLabel()}` : '等待保存';
+  node.className = `save-status ${saveState}`;
+  node.innerHTML = `<span class="save-status-dot"></span>${esc(text)}`;
+}
 function save({ strict = false } = {}) {
   if (!storageLoaded) return Promise.reject(new Error('记录尚未恢复，已阻止覆盖保存。'));
   const data = clone(state);
+  saveState = 'saving'; saveError = ''; updateSaveStatus();
   saveQueue = saveQueue.catch(() => {}).then(async () => {
     if (closed) return;
     await recordStore().save(data);
-    storageNotice();
+    saveState = 'saved'; lastSavedAt = Date.now(); saveError = ''; storageNotice(); updateSaveStatus();
   }).catch(error => {
+    saveState = 'error'; saveError = error.message || '宿主存储未响应'; updateSaveStatus();
     storageNotice(error.message || '宿主存储未响应');
     notify('保存失败，请先导出记录，避免关闭后丢失。', 'error');
     if (strict) throw new Error(`访谈清单未能保存：${error.message || '宿主存储未响应'}。当前内容仍在本页，请先导出备份，暂勿关闭。`);
@@ -130,12 +150,74 @@ async function modelApi(path, data, signal, task) {
   } finally { clearTimeout(timer); if (modelProgress === progress) modelProgress = null; }
 }
 function serviceBar() { return `<div class="servicebar"><span>${state.settings.mode === 'demo' ? '离线脚本演示 · 固定结果' : '云端模型 · 流式分析'}</span><button type="button" data-action="settings">分析设置 ↗</button></div>`; }
+function localStartupChecks(topic, session, record = true) {
+  const hasTopic = !!topic.title?.trim(), hasGoal = !!session.goal?.trim(), hasItems = session.items.some(i => i.label?.trim() && i.question?.trim());
+  return [
+    { key: 'topic', label: '访谈主题', detail: hasTopic ? '已填写' : '需要填写主题', status: hasTopic ? 'ok' : 'error' },
+    { key: 'goal', label: '访谈目标', detail: hasGoal ? '已填写' : '需要填写目标', status: hasGoal ? 'ok' : 'error' },
+    { key: 'items', label: '访谈主线', detail: hasItems ? `${session.items.filter(i => i.label?.trim() && i.question?.trim()).length} 条有效主线` : '至少保留一条完整主线', status: hasItems ? 'ok' : 'error' },
+    { key: 'service', label: '云端服务', detail: record ? '尚未检测' : '文本演练可稍后检测', status: record ? 'pending' : 'warn' },
+    { key: 'audio', label: '录音能力', detail: record ? '尚未检测' : '文本演练不需要录音', status: record ? 'pending' : 'warn' },
+    { key: 'glasses', label: '眼镜连接', detail: ready ? '已连接或可稍后同步' : '可选；手机仍可独立使用', status: 'warn' }
+  ];
+}
+function updateStartupChecks(checks, status = 'idle', error = '') { startupCheck = { checks, status, error }; }
+async function runStartupCheck({ record = true, force = false } = {}) {
+  const { topic, session } = current(state);
+  const checks = localStartupChecks(topic, session, record);
+  updateStartupChecks(checks, 'checking'); render();
+  const set = (key, detail, status) => { const item = checks.find(c => c.key === key); if (item) Object.assign(item, { detail, status }); };
+  if (checks.some(c => c.status === 'error')) { updateStartupChecks(checks, 'error', '请先补齐主题、目标和主线。'); render(); return { ok: false, checks }; }
+  if (state.settings.mode === 'demo') {
+    set('service', '离线脚本演示，不需要云端', 'warn'); set('audio', record ? (ready ? 'App 录音接口可用' : '未连接 App 录音接口') : '文本演练不需要录音', record && !ready ? 'error' : 'warn');
+    const ok = !record || ready; updateStartupChecks(checks, ok ? 'ready' : 'error', ok ? '' : '请在 MemoMind App 中打开问全后再录音。'); render(); return { ok, checks };
+  }
+  try {
+    const cached = !force && gatewayHealth?.backend === state.settings.backend && Date.now() - gatewayHealth.at < 60000;
+    const health = cached ? gatewayHealth.value : await api('/api/health');
+    gatewayHealth = { backend: state.settings.backend, at: Date.now(), value: health };
+    const modelOk = health.modelConfigured === true;
+    const asrOk = health.asr?.streaming === true;
+    set('service', modelOk ? `已连接 · ${health.version || '网关正常'}` : '文本模型未配置，请检查网关设置', modelOk ? 'ok' : 'error');
+    set('audio', record ? (asrOk ? '云端流式转写可用' : '云端流式转写未配置') : '文本演练不需要录音', record && !asrOk ? 'error' : 'warn');
+    const batchOk = session.analysisVersion !== 2 || health.features?.batchAnalysis === true;
+    if (record && !batchOk) set('service', '网关需要支持主持人批次分析（0.5.0+）', 'error');
+    let audioOk = true;
+    if (record) {
+      audioOk = ready;
+      if (ready) {
+        try { const caps = await runInForeground(bridge.gm, () => bridge.gm.runtime.getCapabilities(), { timeoutMs: 8000 }); audioOk = !!(caps.methods?.includes('audio.openCapture') || caps.audio); } catch { audioOk = false; }
+      }
+      set('audio', audioOk ? 'App 录音接口与云端转写可用' : '未发现 audio.openCapture，请检查 App 录音权限', audioOk ? 'ok' : 'error');
+    }
+    const ok = modelOk && (!record || (asrOk && batchOk && audioOk));
+    updateStartupChecks(checks, ok ? 'ready' : 'error', ok ? '' : '请处理标记为“!”的项目后重试。'); render(); return { ok, checks };
+  } catch (error) {
+    set('service', error.message || '网关连接失败，请检查地址和访问码', 'error');
+    if (record) set('audio', '尚未完成录音能力检查', 'pending');
+    updateStartupChecks(checks, 'error', error.message || '网关连接失败'); render(); return { ok: false, checks, error };
+  }
+}
+function elapsedInterviewMs(session, at = Date.now()) {
+  const start = Date.parse(session.startedAt || ''); if (!Number.isFinite(start)) return 0;
+  const end = session.endedAt ? Date.parse(session.endedAt) : at;
+  let paused = Number(session.pausedMs) || 0;
+  if (session.paused && session.pausedAt) paused += Math.max(0, at - Date.parse(session.pausedAt));
+  return Math.max(0, end - start - paused);
+}
+function liveTiming(session) {
+  const elapsed = elapsedInterviewMs(session), minutes = Math.floor(elapsed / 60000), seconds = Math.floor(elapsed / 1000) % 60;
+  const display = interviewDisplay(session), current = display.progress || `1/${session.items.length || 1}`;
+  const parts = [`已用 ${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`, `第 ${current} 条主线`];
+  if (session.plannedMinutes) { const remaining = Math.max(0, session.plannedMinutes - elapsed / 60000); parts.push(`计划 ${session.plannedMinutes} 分钟`); if (remaining <= 1) parts.push('建议进入下一主线或收尾'); else parts.push(`剩余约 ${Math.ceil(remaining)} 分钟`); }
+  return parts.map((part, index) => `<span class="live-meta-item ${index === parts.length - 1 && /建议/.test(part) ? 'warning' : ''}">${esc(part)}</span>`).join('');
+}
 function renderTopics() {
   const templates = Object.entries(TEMPLATES).filter(([, t]) => t.analysisVersion === 2);
   return `<div class="lead"><div class="eyebrow">每次交流，都有一个想弄清的问题</div><h1>从一个好问题开始。</h1><p class="muted">选一个适合的模板，目标与提纲已经备好。</p></div><section class="template-section" aria-labelledby="template-title"><div class="section-head"><h2 id="template-title">开始新访谈</h2><span class="fine">提纲可自由修改</span></div><div class="interview-templates">${templates.map(([key, t]) => `<article class="interview-template"><div class="between"><h3>${esc(t.label)}</h3><span class="template-time">约 ${t.minutes} 分钟</span></div><p>${esc(t.description)}</p><div class="template-outline">${t.items.map(i => esc(i[1])).join('<span aria-hidden="true"> / </span>')}</div><button class="small secondary" data-action="new-topic" data-template="${key}" aria-label="使用${esc(t.label)}模板">使用模板 <span aria-hidden="true">↗</span></button></article>`).join('')}</div></section><section class="topic-history" aria-labelledby="history-title"><div class="section-head"><h2 id="history-title">我的访谈</h2><span class="fine">${state.topics.length} 个主题</span></div>${state.topics.map(t => `<article class="topic ${t.id === state.topicId ? 'selected' : ''}"><div class="between"><h2>${esc(t.title)}</h2><span class="pill">${esc(TEMPLATES[t.template]?.label || '自定义')}</span></div><p class="muted">${t.sessions.length} 次访谈 · ${t.sessions.reduce((n, s) => n + s.segments.length, 0)} 段对话</p><p class="fine">${esc(last(t.sessions).goal)}</p><div class="row topic-actions"><button class="secondary small" data-action="open-topic" data-id="${t.id}">打开记录</button><button class="small" data-action="resume-topic" data-id="${t.id}">新一次访谈</button><button class="small danger" data-action="delete-topic" data-id="${t.id}">删除</button></div>${deleteId === t.id ? `<div class="delete-confirm">确认删除这份本机记录？此操作不能撤销，建议先导出。<div class="row"><button class="small" data-action="cancel-delete">取消</button><button class="small" data-action="download-topic" data-id="${t.id}">先导出</button><button class="small danger" data-action="confirm-delete" data-id="${t.id}">确认删除</button></div></div>` : ''}</article>`).join('')}</section>`;
 }
 function renderPrepare(t, s) {
-  if (s.analysisVersion === 2) return hostPrepare(t, s, { progress: modelProgressMarkup(), error: preparationError, starting: prepareStarting, busy, service: serviceBar() });
+  if (s.analysisVersion === 2) return hostPrepare(t, s, { progress: modelProgressMarkup(), error: preparationError, starting: prepareStarting, busy, service: serviceBar(), startupCheck });
   const locked = s.segments.length > 0;
   return `<div class="lead"><div class="eyebrow">先有目标，再有好问题</div><h1>这次想弄清什么？</h1><p class="muted">清单决定提醒的方向。你可以随时补充和修改。</p></div>${modelProgressMarkup()}<form id="prepare-form" novalidate><section class="card"><label>访谈主题<input name="title" value="${esc(t.title)}" required maxlength="100"></label><label>本次目标<textarea name="goal" required maxlength="1500" placeholder="例如：弄清用户上次在哪一步放弃报名，以及为什么。">${esc(s.goal)}</textarea></label><label>当前受访角色<input name="role" value="${esc(s.role)}" required maxlength="100" placeholder="例如：客服主管 / 体验用户"></label></section><section class="card"><div class="section-head"><h2>待确认清单</h2><span class="pill">由你确认</span></div><p class="fine">${locked ? '修改清单后，本次旧分析会撤回，原话保留，可重新分析。' : '模板只是候选草案。删改后，确认这些是本次真正想问的事。'}</p><div id="item-editors">${s.items.map((i, index) => `<div class="item-editor" data-item="${esc(i.id)}"><div class="row"><input aria-label="事项 ${index + 1} 名称" data-field="label" value="${esc(i.label)}" required maxlength="100"><button type="button" class="danger small" data-action="remove-item" data-id="${esc(i.id)}">移除</button></div><input aria-label="事项 ${index + 1} 问题" data-field="question" value="${esc(i.question)}" required maxlength="300"></div>`).join('')}</div><div class="row space-top"><button type="button" class="secondary small" data-action="add-item">＋ 添加事项</button><button type="button" class="small" data-action="generate-list" ${busy ? 'disabled' : ''}>根据目标生成候选</button></div></section><div class="notice">确认现场允许记录后开始。默认持续录音并发送至火山引擎，稳定分句自动保存和分析；可随时暂停或停止。</div><p id="preparation-error" class="notice error" role="alert" ${preparationError ? '' : 'hidden'}>${esc(preparationError)}</p><button type="submit" class="primary wide" ${prepareStarting || busy || s.endedAt ? 'disabled' : ''}>确认清单，${locked ? '继续' : '开始'}录音访谈 →</button></form>${s.endedAt ? '<p class="fine space-top">这次访谈已结束。请在主题页选择“新一次访谈”。</p>' : ''}${serviceBar()}`;
 }
@@ -150,7 +232,7 @@ function renderCapture(s, demo, t) {
   return `<section class="card"><div class="section-head"><h2>实时转写</h2><span class="pill ${recording ? 'recording' : ''}" id="record-status">${label}</span></div><p id="stream-notice" class="notice" role="status">${esc(streamNotice || '确认清单后会自动启动；也可点击下方开始录音。')}</p><p class="fine" id="capture-time">${Math.floor(capturedMs / 1000)} 秒音频 · ${speechQueue.length} 段待处理</p><div class="live-transcript" id="live-partial" role="status" aria-live="polite">${esc(streamPartial || (recording ? '正在听，识别文字会显示在这里……' : '开始访谈后持续采集，边发送边识别。'))}</div><p class="fine space-top">火山 ASR 转文字 → 稳定分句保存 → 语言模型分析 → 眼镜一条追问。转写可能有误，可在下方更正。${s.analysisVersion === 2 ? '声音编号需由你绑定角色；未绑定时标记未知，可更正。' : '所有分句暂按当前角色标注，不自动区分访谈双方。'}</p><button class="primary wide space-top ${recording ? 'recording' : ''}" data-action="record" ${streamStatus === 'starting' || streamStatus === 'stopping' || !ready || s.endedAt || !s.confirmed || s.paused ? 'disabled' : ''}>${streamStatus === 'starting' ? '正在连接…' : streamStatus === 'stopping' ? '正在收尾…' : recording ? '■ 停止录音并收尾' : '◉ 开始持续录音'}</button>${streamError ? `<p class="notice error" role="alert">${esc(streamError)}</p>` : ''}<p class="fine space-top">只在本次访谈内采集。暂停、离开页面、进入后台或结束时停止；原始录音不写入问全后端磁盘。</p><details class="space-top" ${audioBlob && !active ? 'open' : ''}><summary>手动补充或导入音频</summary><label for="transcript">补充文本</label>${s.analysisVersion === 2 ? `<label>此段是谁说的？<input id="draft-role" type="hidden" value="${draftRole}"><div class="row">${[['unknown','未知角色'],['host','主持人'],['guest','嘉宾']].map(([role,label])=>`<button type="button" class="small ${draftRole === role ? 'secondary' : ''}" data-action="draft-role" data-id="${role}" aria-pressed="${draftRole === role}">${label}</button>`).join('')}</div></label>` : ''}<textarea id="transcript" placeholder="输入、粘贴或更正刚才的对话……" maxlength="12000" ${s.endedAt || active ? 'disabled' : ''}>${esc(draft)}</textarea><button class="secondary small space-top" data-action="analyze" ${busy || active || !s.confirmed || s.endedAt ? 'disabled' : ''}>${busy ? '分析中…' : '保存并分析 →'}</button><div class="row space-top"><button class="small link" data-action="import-audio" ${busy || active || s.endedAt ? 'disabled' : ''}>＋ 导入音频文件</button><span class="fine">≤ 5 MiB · 回放最长 2 分钟</span></div>${audioBlob ? `<div class="notice"><strong>${esc(audioName || '音频片段')}</strong> · ${(audioBlob.size / 1024).toFixed(0)} KiB<div class="row space-top"><button class="secondary small" data-action="retry-audio" ${busy || active ? 'disabled' : ''}>回放并流式识别</button><button class="small" data-action="clear-audio" ${active ? 'disabled' : ''}>清除音频</button></div></div>` : ''}${audioNotice ? `<p class="notice warn">${esc(audioNotice)}</p>` : ''}</details>${state.settings.mode === 'demo' ? `<div class="notice warn">固定脚本演示；开始录音会切换为真实分析。</div><button class="secondary wide" data-action="demo" ${busy || active || !s.confirmed || !demo || s.endedAt ? 'disabled' : ''}>${demo ? `运行演示片段 ${s.demoStep + 1} / ${DEMOS[t.template].length}` : '本场景演示已完成'}</button>` : ''}${serviceBar()}</section>`;
 }
 function renderLive(t, s) {
-  if (s.analysisVersion === 2) return hostLive(t, s, { capture: renderCapture(s, DEMOS[t.template]?.[s.demoStep], t), progress: modelProgressMarkup(), editing, delivery, notice: streamNotice, error: streamError });
+  if (s.analysisVersion === 2) return hostLive(t, s, { capture: renderCapture(s, DEMOS[t.template]?.[s.demoStep], t), progress: modelProgressMarkup(), editing, delivery, notice: streamNotice, error: streamError, saveStatus: saveStatusMarkup(), timing: liveTiming(s) });
   const q = activeQuestion(s), count = s.items.filter(i => itemStatus(s, i.id) === 'stated').length;
   const demo = DEMOS[t.template]?.[s.demoStep];
   return `<div class="lead"><div class="between"><div><div class="eyebrow">${esc(TEMPLATES[t.template]?.label)} · 第 ${t.sessions.indexOf(s) + 1} 次访谈</div><h1>${esc(t.title)}</h1></div><button class="small" data-action="pause" ${s.endedAt ? 'disabled' : ''}>${s.paused ? '恢复录音访谈' : '暂停访谈'}</button></div><p class="muted">${esc(s.role)} · ${esc(s.goal)}</p></div>${!s.confirmed ? '<div class="notice warn">先在“准备”页确认目标和清单，再开始分析。</div>' : ''}${streamNotice || streamError ? `<div class="notice ${streamError ? 'error' : ''}" role="${streamError ? 'alert' : 'status'}"><p id="recording-progress">${esc(streamNotice)}</p>${streamError ? `<p>${esc(streamError)}</p>` : ''}</div>` : ''}${s.endedAt ? '<div class="ending">本次访谈已结束。<button data-view="results" class="link small">查看记录 →</button></div>' : ''}${modelProgressMarkup()}<div class="split"><div><section class="hint-card" aria-label="当前建议"><div class="between"><span class="eyebrow">${s.paused ? '提示已暂停' : '下一句，值得问'}</span><span class="badge">${q ? '一条就够' : '等待对话'}</span></div><p class="question ${q ? '' : 'empty'}">${q ? esc(q.text) : s.paused ? '留一点空间，认真听。' : '先听对方说，再找没问清的。'}</p>${q ? `<div class="hint-actions"><button class="primary" data-action="asked">✓ 已问</button><button data-action="deferred">稍后处理</button><button data-action="skipped">跳过</button></div><div class="quote">${esc(q.quote)}</div><p class="gap">还缺什么：${esc(q.gap)}</p><p class="fine space-top">建议向 ${esc(q.role)} 确认 · ${q.source === 'demo' ? '离线脚本演示' : '模型分析，需人工判断'}</p>` : '<p class="fine">已问只表示问题提出了，收到具体回答后再更新清单。</p>'}</section>${renderCapture(s, demo, t)}<section class="card"><div class="section-head"><h2>对话与来源</h2><span class="pill">${s.segments.length} 段</span></div>${s.segments.length ? [...s.segments].reverse().map(seg => `<article class="segment"><div class="between"><span class="fine">${esc(seg.role)} · ${time(seg.createdAt)} · ${seg.source === 'demo' ? '虚构演示' : seg.source === 'audio' ? '录音转写' : '手动文本'}</span><span class="pill">${seg.analyzedRevision === seg.revision ? '已分析' : '待分析'}</span></div>${editing === seg.id ? `<div class="edit-panel"><label>修正角色<input id="edit-role" value="${esc(seg.role)}" maxlength="100"></label><label>修正原话<textarea id="edit-text" maxlength="12000">${esc(seg.text)}</textarea></label><div class="row"><button class="secondary small" data-action="save-correction" data-id="${seg.id}">保存修正</button><button class="small" data-action="cancel-edit">取消</button></div></div>` : `<p>${esc(seg.text)}</p><div class="row"><button class="small link" data-action="edit-segment" data-id="${seg.id}" ${busy || s.endedAt ? 'disabled' : ''}>更正原话 / 角色</button><button class="small link" data-action="retry" data-id="${seg.id}" ${busy || s.endedAt || seg.analyzedRevision === seg.revision ? 'disabled' : ''}>重新分析</button></div>`}</article>`).join('') : '<p class="muted">原话会保留在这里，追问可以回到对应片段核对。</p>'}</section></div><div><section class="card"><div class="section-head"><h2>问清楚了多少</h2><span class="metric"><strong>${count}</strong>/ ${s.items.length}</span></div><div class="progress"><div style="width:${s.items.length ? count / s.items.length * 100 : 0}%"></div></div><p class="fine">“具体陈述”仍是受访者说法，未经事实核验。</p>${statusList(s)}</section><section class="card"><details><summary>眼镜同步预览 · 600 × 350</summary><canvas id="hud" class="hud" aria-label="眼镜显示预览"></canvas><p class="fine space-top" id="delivery">${esc(delivery)}</p><button class="small link" data-action="resend">重新发送当前提示</button></details></section>${!s.endedAt ? '<button class="wide space-top" data-action="end">结束访谈，整理记录 →</button>' : ''}</div></div>`;
@@ -182,10 +264,13 @@ function drawPreview() {
   if ($('hud')) { $('hud').width = 600; $('hud').height = 350; $('hud').getContext('2d').drawImage(localCanvas, 0, 0); }
 }
 async function syncGlasses() {
+  const syncEpoch = ++glassesSyncEpoch;
   drawPreview();
   if (!ready || !runtimeActive) { delivery = '手机预览可用；尚未连接显示接口'; return; }
   const { session } = current(state);
-  await presenter.present(localCanvas, session.paused || !!session.endedAt || !session.confirmed, {sessionId:session.id,questionId:activeQuestion(session)?.id || null,stableAt:activeQuestion(session)?.source === 'outline' ? null : session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
+  const display = interviewDisplay(session), question = session.analysisVersion === 2 ? display.question : activeQuestion(session);
+  if (syncEpoch !== glassesSyncEpoch) return;
+  await presenter.present(localCanvas, session.paused || !!session.endedAt || !session.confirmed, {sessionId:session.id,questionId:question?.id || null,stableAt:question?.source === 'outline' ? null : session.lastAnalysis?.stableAt || null,analysisAt:session.lastAnalysis?.completedAt || null});
 }
 async function api(path, data, { binary = false, signal, backend = state.settings.backend, token = gatewayToken(backend), onProgress } = {}) {
   backend = normalizeBackend(backend, mobileHost);
@@ -406,6 +491,7 @@ async function beginRecording(blob = null) {
     }
     callbacks.onStage('正在检测云端转写服务…');
     const health = await api('/api/health', undefined, { signal: startupController.signal });
+    if (session.analysisVersion === 2 && !health.modelConfigured) throw new Error('当前网关尚未配置文本模型，录音未启动。请先检测连接或更新云端配置。');
     if(session.analysisVersion===2 && !health.features?.batchAnalysis)throw new Error('当前网关尚未升级到0.5.0，未开始录音。请先更新网关再使用本版本。');
     if (!health.asr?.streaming) throw new Error('后端尚未配置火山流式语音，请先检测服务连接。');
     if (!valid()) return;
@@ -458,6 +544,7 @@ document.addEventListener('click', async event => {
     snapshotDraft();
     const { topic, session } = current(state), id = button.dataset.id;
     if (action === 'retry-save') { await save({ strict: true }); notify('访谈记录已保存。'); return; }
+    if (action === 'check-startup') { capturePreparation(); await runStartupCheck({ record: true, force: true }); return; }
     if (action === 'backup-current') return download(topic);
     if (action === 'generate-report') return await generateReport();
     if (action === 'draft-role') { if (!['host','guest','unknown'].includes(id)) return; draftRole=id; if ($('draft-role')) $('draft-role').value=id; document.querySelectorAll('[data-action="draft-role"]').forEach(b=>{ b.classList.toggle('secondary',b.dataset.id===id); b.setAttribute('aria-pressed',String(b.dataset.id===id)); }); return; }
@@ -485,6 +572,7 @@ document.addEventListener('click', async event => {
         if (!prior.endedAt) { notify('该主题已有进行中的访谈，已打开。'); state.sessionId = prior.id; view = prior.confirmed ? 'live' : 'prepare'; }
         else { const added = newSession(next.template, next.id, prior.items); added.goal = prior.goal; added.role = prior.role; if (prior.analysisVersion === 2) { added.guestBackground=prior.guestBackground; added.backgroundSource=prior.backgroundSource; added.boundaries=prior.boundaries; } next.sessions.push(added); state.sessionId = added.id; view = 'prepare'; }
       } else { state.sessionId = action === 'open-session' ? id : last(next.sessions).id; view = action === 'new-topic' ? 'prepare' : 'live'; }
+      startupCheck = { status: 'idle', checks: [], error: '' };
       refreshInterviewSuggestion(current(state).session);
       await save(); render(); await syncGlasses(); return;
     }
@@ -547,13 +635,15 @@ document.addEventListener('click', async event => {
       if (!session.paused) resumeCaptureSessionId = (recording || streamStatus === 'starting') ? session.id : null;
       const resumeCapture = session.paused && resumeCaptureSessionId === session.id;
       cancelRequest(); await stopRecording(true); session.paused = !session.paused; session.revision++;
+      if (session.paused) session.pausedAt = now();
+      else { session.pausedMs = (Number(session.pausedMs) || 0) + Math.max(0, Date.parse(now()) - Date.parse(session.pausedAt || now())); delete session.pausedAt; }
       refreshInterviewSuggestion(session);
       await save(); render(); await syncGlasses();
       if (!session.paused) { resumeCaptureSessionId = null; if (resumeCapture) await beginRecording(); }
       return;
     }
     if (action === 'resend') return await syncGlasses();
-    if (action === 'end') { if(session.ending)return;session.ending=true;render();try{cancelRequest();if(ongoingAnalysis)await ongoingAnalysis;await stopRecording(false);session.endedAt=now();session.revision++;delete session.ending;await save();view='results';render();void syncGlasses();if(session.analysisVersion===2)await generateReport();}finally{delete session.ending;render();}return; }
+    if (action === 'end') { if(session.ending)return;session.ending=true;render();try{cancelRequest();if(ongoingAnalysis)await ongoingAnalysis;await stopRecording(false);if(session.paused&&session.pausedAt){session.pausedMs=(Number(session.pausedMs)||0)+Math.max(0,Date.parse(now())-Date.parse(session.pausedAt));delete session.pausedAt;}session.endedAt=now();session.revision++;delete session.ending;await save();view='results';render();void syncGlasses();if(session.analysisVersion===2)await generateReport();}finally{delete session.ending;render();}return; }
     if (action === 'edit-segment') { if (recording || streamStatus === 'starting') { cancelRequest(); await stopRecording(); } editing = id; render(); return; }
     if (action === 'cancel-edit') { editing = null; render(); return; }
     if (action === 'save-correction') {
@@ -588,9 +678,15 @@ async function confirmAndRecord({ record = true } = {}) {
   const button = $('prepare-form')?.querySelector('button[type="submit"]');
   if (button) { button.disabled = true; button.textContent = '正在确认清单…'; }
   try {
-    capturePreparation(); const { session } = current(state);
+    capturePreparation(); const { topic, session } = current(state);
     if (!session.goal || !session.role || !session.items.length || session.items.some(i => !i.label || !i.question)) throw new Error('请填好目标、角色，并至少确认一条完整事项；新增的空白事项请填写或移除。');
     if (session.endedAt) throw new Error('这次访谈已结束，请新建一次访谈。');
+    if (record && session.analysisVersion === 2) {
+      const check = await runStartupCheck({ record: true, force: false });
+      if (!check.ok) throw new Error(check.error || '开始前检查未通过，请处理检查列表中的待处理项。');
+    } else {
+      updateStartupChecks(localStartupChecks(topic, session, false), 'ready');
+    }
     if(!session.segments.length)session.startedAt=now();
     session.confirmed = true; session.paused = false;
     refreshInterviewSuggestion(session);

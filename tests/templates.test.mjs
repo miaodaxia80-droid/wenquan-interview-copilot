@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TEMPLATES, newTopic, newSession, addSegment, contextFor, applyAnalysis } from '../web/core.js';
 import { validateContext } from '../server/model.mjs';
-import { hostPrepare } from '../web/interview-ui.js';
+import { hostPrepare, hostLive } from '../web/interview-ui.js';
+import { ensureInterviewSuggestion } from '../web/interview.js';
 const templates=Object.entries(TEMPLATES).filter(([,t])=>t.analysisVersion===2);
 test('六个实用模板自带目标、时长、主线和预设问题，准备页可编辑',()=>{
  assert.equal(templates.length,6);
@@ -12,8 +13,13 @@ test('六个实用模板自带目标、时长、主线和预设问题，准备�
   assert.ok(s.goal.length>10);assert.equal(s.currentChapterId,s.items[0].id);
   assert.equal(new Set(s.items.map(i=>i.id)).size,s.items.length);
   assert.ok(s.items.every(i=>i.question&&i.preparedQuestions&&i.priority>=1&&i.priority<=3));
-  const html=hostPrepare(topic,s,{progress:'',service:''});assert.match(html,/name="plannedMinutes"/);assert.ok(html.includes(t.title));
+  const html=hostPrepare(topic,s,{progress:'',service:''});assert.match(html,/name="plannedMinutes"/);assert.match(html,/开始前检查/);assert.match(html,/检测开始条件/);assert.ok(html.includes(t.title));
  }
+});
+test('会中建议明确来源，主线推进和保存状态有可见反馈',()=>{
+ const topic=newTopic('aidol'),s=topic.sessions[0];s.confirmed=true;ensureInterviewSuggestion(s);
+ const html=hostLive(topic,s,{capture:'',progress:'',saveStatus:'<div id="save-status">已保存 · 刚刚</div>',timing:'<span>第 1 / 5 条主线</span>'});
+ assert.match(html,/主线建议/);assert.match(html,/按已确认的访谈主线推进/);assert.match(html,/已保存 · 刚刚/);assert.match(html,/第 1 \/ 5 条主线/);
 });
 test('每个新模板可经过既有 v2 模型协议处理原话和候选',()=>{
  for(const [key] of templates){
